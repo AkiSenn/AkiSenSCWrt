@@ -23,13 +23,9 @@ on:
         required: true
         default: true
         type: boolean
-  push:
-    branches:
-      - main
-    paths:
-      - 'rax3000m-emmc.config'
-      - 'diy-*.sh'
-      - '.github/workflows/*.yml'
+  # 注意：故意不加 push 触发。
+  # 否则每次修改配置/脚本都会自动多跑一次全量编译（约 2-4 小时），
+  # 白白消耗 Actions 额度。需要编译时手动 Run workflow 即可。
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
