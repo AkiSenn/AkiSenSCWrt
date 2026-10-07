@@ -88,15 +88,28 @@ strings $(blkid -t PARTLABEL=fip -o device) | grep -iE "U-Boot 20|dual_boot" | h
 
 优点：与 ImmortalWrt 24.10 官方发布完全同一套布局，版本天然一致，`sysupgrade` 升级最省心。
 
+注意事项：
 1. 进 U-Boot Web UI（电脑固定 IP `192.168.1.2/24`，按住 reset 上电等灯变色，浏览器开 `http://192.168.1.1`）。
-2. 先刷 U-Boot：`http://192.168.1.1/uboot.html` 上传本次编译产出的 **`*emmc-bl31-uboot.fip`**。
-3. 再刷分区表：`http://192.168.1.1/gpt.html` 上传 **`*emmc-gpt.bin`**。
-4. 最后刷固件：`http://192.168.1.1` 上传 **`*sysupgrade.itb`**。
+2. 先刷分区表：`http://192.168.1.1/gpt.html` 上传 **`immortalwrt-24.10.x-mediatek-filogic-cmcc_rax3000m-emmc-gpt.bin`**（17,408 字节）。
+3. 再刷 BL2：`http://192.168.1.1/bl2.html` 上传 **`immortalwrt-24.10.x-mediatek-filogic-cmcc_rax3000m-emmc-preloader.bin`**（约 221 KB）。
+4. 再刷 U-Boot：`http://192.168.1.1/uboot.html` 上传 **`mt7981-cmcc_rax3000m-emmc-fip-fit.bin`**（约 218 KB，
+   来自官方镜像库 `https://drive.wrt.moe/uboot/mediatek/`）。
+5. 最后刷固件：先传 **`*-initramfs-recovery.itb`** 进临时系统，再在系统内升级到 **`*-squashfs-sysupgrade.itb`**。
 
-> 刷完进系统后格式化数据分区（给 SMB/硬盘用）：
+> ⚠️ **顺序是 GPT → BL2 → FIP → 固件，不能跳步。**
+>
+> ⚠️ **关键更正（我上一版写错了）**：官方/buildauto 用的 U-Boot 文件名是
+> **`mt7981-cmcc_rax3000m-emmc-fip-fit.bin`（连字符命名，约 218 KB）**，
+> 而 **不是**我从本仓库编译产物里推的 `*-emmc-bl31-uboot.fip`。
+> 请以 `mt7981-cmcc_rax3000m-emmc-fip-fit.bin` 为准，并**认准 `-fit`**（这是支持 `.itb` 的那个）。
+>
+> ⚠️ **eMMC 不自动建数据分区**：这条路线**不会**自动创建最后约 56GB 的数据分区。
+> 首次进系统后手动建一次（只需一次，之后固件会自动挂载）：
 > ```bash
-> mkfs.ext4 $(blkid -t PARTLABEL=data -o device)   # 若 GPT 里有 data 分区
+> cfdisk /dev/mmcblk0        # 用剩余空间新建分区，保持对齐
+> mkfs.ext4 /dev/mmcblk0pX   # X 换成新分区号
 > ```
+> 这和你要用 SMB / 硬盘扩容直接相关，别忘了。
 
 ### 方案 B：lgs2007m 的 U-Boot（社区最常用，支持双系统切换）
 
@@ -201,6 +214,23 @@ md5sum $(blkid -t PARTLABEL=fip -o device)
 **结论**：如果你只是要上 24.10 稳定用，**没必要换**，走方案 B 的"系统内升级"最稳。
 只有当你打算**长期反复进 U-Boot 刷机**时，它的中文 + DHCP + 双格式通吃才值得这个风险。
 
+> ⚠️ **重要更正（与社区实践对照后）**
+>
+> [BuildAuto-Rax3000m 的刷机指南](https://github.com/cachenow/BuildAuto-Rax3000m/blob/main/%E5%88%B7%E6%9C%BA%E5%BF%85%E5%A4%87/RAX3000M_U-Boot_WebUI_%E5%8D%87%E7%BA%A7%E9%99%8D%E7%BA%A7%E6%8C%87%E5%8D%97.md)
+> 的作者在原话里写得很明确：
+>
+> > **原来自己的 U-Boot 是自动 DHCP 是不支持 `.itb` 文件格式**，
+> > 参考 crazy78 的帖子自己摸索成功……
+> > **注意！！！！！Uboot 用这里的！！！！！** → `https://drive.wrt.moe/uboot/mediatek`
+>
+> 也就是说：**"带自动 DHCP 的自制 U-Boot"这一档，恰恰是刷不了 `.itb` 的那一档。**
+>
+> 我上面的二进制分析确实看到 FIT 引导代码，但**看到代码 ≠ Web UI 会接受它**。
+> 结合作者亲口说明 + 他改刷官方 `-fip-fit` 才成功，**更可能的解释是**：
+> 这类 DHCP 自制 U-Boot 的 FIT 支持不完整或未被暴露出来。
+>
+> **所以：要刷 `.itb` 请用官方 `mt7981-cmcc_rax3000m-emmc-fip-fit.bin`，别赌自制版。**
+
 ### ⚠️ 关键：两套方案的 GPT **不通用**（这决定了你能不能混搭）
 
 **结论：不能混搭。fip 分区大小不同，是硬性不兼容。**
@@ -269,6 +299,45 @@ chosen: chosen {
 | 是原厂固件 | 按方案 A 或 B 从头做一遍，两边**任选其一，不要各取一半** |
 
 > **一句话**：GPT 和 U-Boot 是**一对**，拆开配就是砖。这是最容易踩的坑。
+
+### 官方实测文件清单（体积判据得到实证）
+
+来自 [cachenow/BuildAuto-Rax3000m](https://github.com/cachenow/BuildAuto-Rax3000m)（一个成熟的
+RAX3000M 云编译仓库，按 23.05 / 24.10 分目录存放三件套）。我核对了实际文件大小：
+
+| 路线 | 文件 | 实测体积 |
+|---|---|---|
+| **ITB（24.10 主线，刷 `.itb`）** | `immortalwrt-24.10.0-...-cmcc_rax3000m-emmc-gpt.bin` | 17,408 B |
+| | `immortalwrt-24.10.0-...-cmcc_rax3000m-emmc-preloader.bin`（BL2） | 221,501 B |
+| | `mt7981-cmcc_rax3000m-emmc-fip-fit.bin`（U-Boot） | **218,048 B ≈ 213 KB** |
+| | `...-initramfs-recovery.itb` / `...-squashfs-sysupgrade.itb` | 13.9 MB / 17.0 MB |
+| **BIN（单分区闭源路线，刷 `.bin`）** | `mt7981-cmcc_rax3000m-emmc-gpt.bin` | 17,408 B |
+| | `mt7981-cmcc_rax3000m-emmc-bl2.bin`（BL2） | 216,684 B |
+| | `mt7981-cmcc_rax3000m-emmc-fip.bin`（U-Boot） | **589,853 B ≈ 576 KB** |
+
+**注意看最后两行**：同样是"BL2"，ITB 路线的 preloader 是 **221 KB**（17,408/512 + 一个 GPT +
+一个 221KB preloader），而 BIN 路线的 bl2 是 **216 KB** —— 两者体积接近；但 **U-Boot（fip）
+差距巨大：ITB 213 KB vs BIN 576 KB**。
+
+所以社区那个"**小 200K+ → `.itb`，大 500K+ → `.bin`**"的经验判据，
+**在"官方两条路线对比"这个语境下是成立的**（213 KB vs 576 KB，差了 2.6 倍）。
+
+> 我先前说这个判据"不是铁律"，是因为我测的 fry2022 自制 U-Boot 是 585 KB 却含 FIT 代码。
+> 现在更合理的解释是（见方案 C 的更正）：那种自制 U-Boot 的 FIT 支持不完整、
+> Web UI 并不接受 `.itb`。**所以判据本身在官方体系里是可靠的 —— 576 KB 那一档就是 BIN 路线。**
+
+### 权威参考
+
+这份指南写得比我详细，建议直接看：
+[RAX3000M U-Boot WebUI 升级降级指南](https://github.com/cachenow/BuildAuto-Rax3000m/blob/main/%E5%88%B7%E6%9C%BA%E5%BF%85%E5%A4%87/RAX3000M_U-Boot_WebUI_%E5%8D%87%E7%BA%A7%E9%99%8D%E7%BA%A7%E6%8C%87%E5%8D%97.md)
+
+其中几个我采纳的关键点：
+
+- **严格顺序：GPT → BL2 → FIP → 固件**（我原先漏了"先刷 BL2"这一步）
+- **eMMC 不自动建数据分区**，首次进系统要手动 `cfdisk` + `mkfs.ext4`（约 56GB）
+- **eMMC 的 BL2/FIP 不建议在系统内用 `dd` 写**，风险比 NAND 高，**优先走 WebUI**
+- 官方三件套镜像库：`https://drive.wrt.moe/uboot/mediatek/`
+- NAND/eMMC、ITB/BIN **严禁混刷**
 
 ### 关于 eMMC 频率（重要，别踩坑）
 
