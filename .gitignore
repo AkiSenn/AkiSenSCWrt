@@ -1,0 +1,13 @@
+# ????/?????????
+_validate/
+_wf_steps/
+_extracted/
+idx_*.txt
+idx_*.adb
+ref_*.txt
+ref_*.md
+ref_*.sh
+ref_*.mk
+_validate*.log
+*.tmp
+_validate.sh
