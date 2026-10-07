@@ -80,6 +80,10 @@ strings $(blkid -t PARTLABEL=fip -o device) | grep -iE "U-Boot 20|dual_boot" | h
 | 有 `dual_boot.current_slot` 环境变量 | 无 | 有 |
 | 刷机方式 | U-Boot Web UI **可直接刷 `sysupgrade.itb`** | 老版本 Web UI **刷不了 `.itb`**，见下方警告 |
 
+> ⚠️ **两套方案不能混搭！** U-Boot 和 GPT 必须来自**同一套**。
+> 原因（fip 分区大小 2M vs 4M、以及主线用 `fit_do_upgrade` + `/dev/fit0`）
+> 见下方[「关键：两套方案的 GPT 不通用」](#️-关键两套方案的-gpt-不通用这决定了你能不能混搭)。
+
 ### 方案 A：OpenWrt / ImmortalWrt 官方 U-Boot（**推荐**）
 
 优点：与 ImmortalWrt 24.10 官方发布完全同一套布局，版本天然一致，`sysupgrade` 升级最省心。
@@ -196,6 +200,75 @@ md5sum $(blkid -t PARTLABEL=fip -o device)
 
 **结论**：如果你只是要上 24.10 稳定用，**没必要换**，走方案 B 的"系统内升级"最稳。
 只有当你打算**长期反复进 U-Boot 刷机**时，它的中文 + DHCP + 双格式通吃才值得这个风险。
+
+### ⚠️ 关键：两套方案的 GPT **不通用**（这决定了你能不能混搭）
+
+**结论：不能混搭。fip 分区大小不同，是硬性不兼容。**
+
+lgs2007m 教程原文：
+
+> 因为他们的分区表把**原厂 2M 的 fip 分区扩大到 4M**，我这个分区表还是**保持 fip 为 2M**。
+
+| | 方案 A（OpenWrt/ImmortalWrt 官方） | 方案 B（lgs2007m） |
+|---|---|---|
+| `fip` 分区大小（装 U-Boot） | **4 MB** | **2 MB** |
+| GPT 类型 | 官方 `emmc-gpt.bin` | `rax3000m-emmc_xr30-emmc_*gpt.bin` |
+| 分区标签 | 含 `production` | `kernel`/`rootfs`/`production` |
+
+**fip 分区就是装 U-Boot 的地方**（bl2 在 `mmcblk0boot0` 硬件分区，不受 GPT 影响）。
+所以：
+
+- lgs2007m 的 2MB GPT 上，装不下官方 4MB 的 U-Boot → **混搭会出问题**
+- 官方 GPT + lgs2007m U-Boot → 同样不匹配
+
+**必须整套配套使用**：U-Boot 和 GPT 来自**同一套方案**。
+
+### 为什么 24.10 不能靠 GPT 分区名混搭（技术原因）
+
+我查了 ImmortalWrt 24.10 的 `platform.sh`，`cmcc,rax3000m` 走的是**和官方 eMMC 设备完全不同的路径**：
+
+```sh
+cmcc,rax3000m)          # 和 bananapi bpi-r3/r4 一组
+    fit_do_upgrade "$1"  # ← 不是 emmc_do_upgrade
+```
+
+而其他官方 eMMC 设备走的是显式分区名：
+
+```sh
+    CI_KERNPART="kernel"
+    CI_ROOTPART="rootfs"
+    emmc_do_upgrade "$1"
+```
+
+再看设备树：
+
+```dts
+chosen: chosen {
+    bootargs-override = "root=/dev/fit0 rootwait";
+};
+```
+
+**根设备是 `/dev/fit0`（语义化的 FIT 块设备），不是 `rootfs`/`production` 标签。**
+
+这两点合起来说明：RAX3000M 在主线上的升级**不依赖 GPT 分区名**，而是靠
+**U-Boot 把 FIT 卷选出来 + `fitblk` 把它呈现成 `/dev/fit0`**。
+
+所以：
+
+- **主线 24.10 自己的 GPT + 自己的 U-Boot → 完全配套，没问题**（这套是设计好一起用的）
+- **但你不能拿主线的 GPT 去配 lgs2007m 的 U-Boot，也不能反过来** —— 因为 fip 大小和
+  U-Boot 内部的引导逻辑都是配套设计的
+
+### 那对你到底意味着什么（实操建议）
+
+| 你现在的情况 | 该怎么做 |
+|---|---|
+| 已经是 **lgs2007m U-Boot + 他的 GPT** | **别碰 GPT、别碰 U-Boot**。走 LuCI「系统 → 刷写固件」传 `sysupgrade.itb`，保留配置，升级完事 |
+| 已经是 **官方 U-Boot + 官方 GPT** | 同样走 LuCI 系统内升级，或 U-Boot Web UI 直接刷 `sysupgrade.itb`（官方 U-Boot 支持） |
+| 想从 B 换成 A | 必须**整套换**：官方 GPT + 官方 preloader + 官方 U-Boot 一起刷，不能只换一个 |
+| 是原厂固件 | 按方案 A 或 B 从头做一遍，两边**任选其一，不要各取一半** |
+
+> **一句话**：GPT 和 U-Boot 是**一对**，拆开配就是砖。这是最容易踩的坑。
 
 ### 关于 eMMC 频率（重要，别踩坑）
 
