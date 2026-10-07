@@ -162,6 +162,41 @@ md5sum $(blkid -t PARTLABEL=fip -o device)
 选好分区表大小（建议 **512M / 512M**，给 overlay 和插件留足空间）后，
 按教程第 3 步刷 GPT 并新建 `data` 分区。
 
+### 方案 C：fry2022 的中文 DHCP U-Boot（双格式通吃，已实测分析）
+
+来源：[恩山 tid=8405357](https://www.right.com.cn/forum/thread-8405357-1-1.html)（作者 fry2022，
+基于 [hanwckf/bl-mt798x](https://github.com/hanwckf/bl-mt798x)，DHCP 代码来自"湍清"）
+
+**文件**：`mt7981_cmcc_rax3000m-emmc-fip.bin`（解压后 598,693 字节 / 585 KB）
+
+我实际下载后做了二进制分析，结论如下：
+
+| 项目 | 实测结果 |
+|---|---|
+| U-Boot 版本 | 2023.07（2024-09-12 16:03 构建） |
+| 引导 `.bin`（Legacy） | ✅ `## Booting kernel from Legacy Image` + 完整 Legacy 校验分支 |
+| 引导 `.itb`（FIT） | ✅ `FIT image found` / `## Loading %s from FIT Image` / hash 校验 |
+| FIT 配置选择 | ✅ 设备树内含 **`u-boot,bootconf`** 签名 |
+| DHCP | ✅ 内置 DHCP server，电脑无需固定 IP |
+| 中文界面 | ✅ |
+| 上传页 | `/bl2.html` `/uboot.html` `/gpt.html` + `simg` 单镜像 |
+
+> ⚠️ **重要更正**：网上流传的"U-Boot 小 200K+ 对应 `.itb`、大 500K+ 对应 `.bin`"判据
+> **不是铁律**。这个 U-Boot 585 KB，却是**两种格式通吃的合并构建**（镜像校验代码里
+> Legacy 和 FIT 两个分支都在）。按体积猜会猜错。
+
+**优点（相对方案 B）**：Web UI **能直接刷 `.itb`**，中文界面，DHCP 免固定 IP。
+
+**代价 / 风险**：
+1. 个人第三方构建，基于 U-Boot 2023.07，**无维护承诺**。
+2. 换 U-Boot 是整条链路**最高危**的一步 —— 同一批帖子里有人"刷 uboot 折腾了 2 夜"，
+   有人失手卡在 `169.x` 只能 TTL 救砖。
+3. **刷前必须确认 GPT 分区布局**：社区有人因为"原来刷过主线所以 GPT 分区变了"，
+   导致刷第三方固件一直 `update failed`，最后靠 TTL 刷 rootfs+gpt 才救回来。
+
+**结论**：如果你只是要上 24.10 稳定用，**没必要换**，走方案 B 的"系统内升级"最稳。
+只有当你打算**长期反复进 U-Boot 刷机**时，它的中文 + DHCP + 双格式通吃才值得这个风险。
+
 ### 关于 eMMC 频率（重要，别踩坑）
 
 RAX3000M 算力版的 eMMC **体质较差，必须跑 26MHz**。跑 52MHz 会爆 `I/O error` 导致系统崩溃。
