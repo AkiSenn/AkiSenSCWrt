@@ -78,7 +78,7 @@ strings $(blkid -t PARTLABEL=fip -o device) | grep -iE "U-Boot 20|dual_boot" | h
 | `fip` 大小 | **4 MB** | **2 MB** |
 | 分区标签 | `production` | `kernel` / `rootfs` / `production` 均见 |
 | 有 `dual_boot.current_slot` 环境变量 | 无 | 有 |
-| 刷机方式 | U-Boot Web UI 上传 `sysupgrade.itb` | U-Boot Web UI 上传 `sysupgrade.itb` |
+| 刷机方式 | U-Boot Web UI **可直接刷 `sysupgrade.itb`** | 老版本 Web UI **刷不了 `.itb`**，见下方警告 |
 
 ### 方案 A：OpenWrt / ImmortalWrt 官方 U-Boot（**推荐**）
 
@@ -95,6 +95,37 @@ strings $(blkid -t PARTLABEL=fip -o device) | grep -iE "U-Boot 20|dual_boot" | h
 > ```
 
 ### 方案 B：lgs2007m 的 U-Boot（社区最常用，支持双系统切换）
+
+> ## ⚠️ 重要更正（我上一版说错了，这里必须讲清楚）
+>
+> **文件名里的 `legacy-and-fit` 是指"能引导"两种固件，不等于"Web UI 能刷入" `.itb`。**
+>
+> 社区实测（[zzhi-github 的 RX30 升级记录](https://github.com/zzhi-github/CMCC-RX30-ImmortalWrt/blob/main/RX30%E7%AE%97%E5%8A%9B%E7%89%8823.05%E5%88%B024.10%E5%8D%87%E7%BA%A7.md)）：
+> 用 lgs2007m 老版 U-Boot 的 Web UI 直接刷 `sysupgrade.itb` / `recovery.itb`，
+> **会直接报错"不识别文件"，这条路是堵死的。**
+>
+> 也就是说要分清两件事：
+>
+> | 能力 | lgs2007m 老版 `_legacy-and-fit_` | 需要 |
+> |---|---|---|
+> | **引导**已写入的 `.itb` | ✅ 可以 | 有 `bootconf config-1#mt7981b-cmcc-rax3000m-emmc` |
+> | **从 Web UI 刷入** `.itb` | ❌ 不行 | 换成 `-fip-fit.bin` 版 U-Boot |
+>
+> **所以如果你现在是 lgs2007m 的 U-Boot，有两个选择：**
+>
+> **选择 1（推荐，最省事）：在系统里升级，别走 U-Boot Web UI**
+> 旧固件里直接进 LuCI → **系统 → 备份/刷写固件** → 上传 `sysupgrade.itb`。
+> 因为老 U-Boot 能**引导** `.itb`，这条路是通的，而且**保留配置**。
+> 这也是 24.10 之后正规的升级方式。
+>
+> **选择 2：换 U-Boot**
+> 按[恩山那个帖子](https://www.right.com.cn/forum/forum.php?mod=viewthread&tid=8418450)的流程：
+> 先刷 `emmc-gpt.bin` → 刷 `emmc-preloader.bin` → 换 `mt7981-cmcc_rax3000m-emmc-fip-fit.bin` 版 U-Boot →
+> 刷 `initramfs-recovery.itb` 起来 → 再用 `sysupgrade.itb` 升级。
+>
+> 如果只是要稳定用，**选择 1 就够了**，没必要折腾 U-Boot。
+>
+> **最稳的还是方案 A** —— 官方 U-Boot + 官方 GPT，格式天然对齐，直接刷 `.itb` 没有这些坑。
 
 **具体文件**（你这个机型就是这一个）：
 
@@ -121,6 +152,9 @@ md5sum $(blkid -t PARTLABEL=fip -o device)
 
 > ⚠️ **别拿错文件**：RAX3000Z 增强版（XR30-eMMC）的 U-Boot 是
 > `mt7981_cmcc_xr30-emmc-fip_legacy-and-fit_*.bin`，MD5 不同，刷错起不来。
+>
+> ⚠️ **文件名日期有 20241007 / 20241026 两个版本在流传**。lgs2007m 教程正文里
+> 两处写法不一致，压缩包里以实际文件名为准。**认准 MD5**，不要只看日期。
 >
 > ⚠️ **XR30 用户注意**：lgs2007m 的 U-Boot 把 `bootconf` 硬编码成
 > `config-1#mt7981b-cmcc-rax3000m-emmc`，RAX3000M eMMC 用没问题。
