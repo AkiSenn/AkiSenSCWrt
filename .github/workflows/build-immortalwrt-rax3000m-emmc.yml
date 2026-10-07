@@ -1,0 +1,271 @@
+#
+# ImmortalWrt 24.10.6 云编译 — CMCC RAX3000M (eMMC / 算力版)
+# AkiSenSCWrt / AkiSenn
+#
+# 目标: mediatek/filogic  cmcc,rax3000m-emmc   aarch64_cortex-a53
+# 内核: 6.6 LTS（OpenClash 所需 kmod 全部内建，避免事后装不上）
+#
+name: Build AkiSenSCWrt (RAX3000M eMMC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      openclash_branch:
+        description: 'OpenClash 分支 (master = 稳定 / dev = 开发版)'
+        required: true
+        default: 'master'
+        type: choice
+        options:
+          - master
+          - dev
+      use_ccache:
+        description: '启用 ccache 缓存（二次编译加速，首次会稍慢）'
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - 'rax3000m-emmc.config'
+      - 'diy-*.sh'
+      - '.github/workflows/*.yml'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  CONFIG_FILE: rax3000m-emmc.config
+  DIY_P2: diy-part2.sh
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    name: ImmortalWrt 24.10.6 / RAX3000M-eMMC
+
+    steps:
+      - name: 检出本仓库
+        uses: actions/checkout@v4
+
+      - name: 释放磁盘空间
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+
+      - name: 安装编译依赖
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex \
+            gawk gcc-multilib g++-multilib gettext genisoimage git gperf haveged \
+            help2man intltool lib32gcc-s1 lib32stdc++6 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev \
+            libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lld \
+            libncurses-dev msmtp nano ninja-build p7zip p7zip-full patch pkgconf \
+            python3 python3-pip python3-ply python3-docutils python3-pkg-resources \
+            qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo \
+            uglifyjs unzip vim wget xmlto xxd zlib1g-dev zstd file
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "${TZ}" || true
+
+      - name: 克隆 ImmortalWrt 源码
+        run: |
+          df -h
+          git clone --depth=1 -b "${REPO_BRANCH}" "${REPO_URL}" immortalwrt
+          cd immortalwrt
+          echo "SOURCE_DIR=${GITHUB_WORKSPACE}/immortalwrt" >> "${GITHUB_ENV}"
+          git log -1 --format='%H %ci %s'
+
+      - name: 修复 feeds（git.openwrt.org 在 CI 上常不可达，改用 GitHub 镜像）
+        run: |
+          cd "${SOURCE_DIR}"
+          cat > feeds.conf.default <<'EOF'
+          src-git packages https://github.com/immortalwrt/packages.git;openwrt-24.10
+          src-git luci https://github.com/immortalwrt/luci.git;openwrt-24.10
+          src-git routing https://github.com/openwrt/routing.git;openwrt-24.10
+          src-git telephony https://github.com/openwrt/telephony.git;openwrt-24.10
+          EOF
+          cat feeds.conf.default
+
+      - name: ccache 缓存
+        if: inputs.use_ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ env.REPO_BRANCH }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ env.REPO_BRANCH }}-
+
+      - name: 更新并安装 feeds
+        run: |
+          cd "${SOURCE_DIR}"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 注入 DIY 配置与脚本
+        run: |
+          cd "${SOURCE_DIR}"
+          cp "${GITHUB_WORKSPACE}/${CONFIG_FILE}" .config
+          cp "${GITHUB_WORKSPACE}/${DIY_P2}" diy-part2.sh
+          chmod +x diy-part2.sh
+          # ccache 目录
+          sed -i 's|^CONFIG_CCACHE_DIR=.*|CONFIG_CCACHE_DIR="$HOME/.ccache"|' .config 2>/dev/null || true
+          echo 'CONFIG_CCACHE_DIR="$HOME/.ccache"' >> .config
+
+      - name: 执行 diy-part2.sh（拉取 OpenClash / EasyTier / rkp-ipid 源码 + 注入默认配置）
+        env:
+          OPENCLASH_BRANCH: ${{ inputs.openclash_branch || 'master' }}
+        run: |
+          cd "${SOURCE_DIR}"
+          bash diy-part2.sh
+
+      - name: 重新注册 feeds（关键：让刚克隆的第三方包进入 package 索引）
+        run: |
+          cd "${SOURCE_DIR}"
+          # 必须重跑一次：feeds install 会把 package/ 下的本地包也登记进索引，
+          # 否则 make defconfig 找不到 luci-app-openclash / easytier / kmod-rkp-ipid，
+          # 会把对应的 CONFIG_PACKAGE_* 直接丢掉。
+          ./scripts/feeds install -a
+          echo "================ 第三方包源码确认 ================"
+          for p in luci-app-openclash luci-app-easytier rkp-ipid; do
+            if [ -d "package/$p" ]; then echo "  [OK ] package/$p"; else echo "  [!! ] package/$p 缺失"; fi
+          done
+          echo "--- rkp-ipid 内核模块 ---"
+          grep -rl "KernelPackage/rkp-ipid" package/ 2>/dev/null || echo "  [!! ] 未找到 rkp-ipid 内核模块定义"
+          echo "--- easytier 子包 ---"
+          find package/luci-app-easytier -maxdepth 2 -name Makefile 2>/dev/null || true
+
+      - name: 生成 .config（make defconfig）
+        run: |
+          cd "${SOURCE_DIR}"
+          make defconfig
+          echo "================ 关键项自检 ================"
+          fail=0
+          check() { if grep -q "^$1=y" .config; then echo "  [OK ] $1"; else echo "  [!! ] $1  <-- 缺失"; fail=1; fi }
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_cmcc_rax3000m=y' .config \
+            && echo "  [OK ] 目标设备 cmcc_rax3000m" || { echo "  [!! ] 目标设备错误"; fail=1; }
+          for s in \
+            CONFIG_PACKAGE_luci-app-openclash \
+            CONFIG_PACKAGE_kmod-tun \
+            CONFIG_PACKAGE_kmod-nft-tproxy \
+            CONFIG_PACKAGE_kmod-nft-socket \
+            CONFIG_PACKAGE_kmod-nf-tproxy \
+            CONFIG_PACKAGE_kmod-inet-diag \
+            CONFIG_PACKAGE_kmod-nf-conntrack-netlink \
+            CONFIG_PACKAGE_dnsmasq-full \
+            CONFIG_PACKAGE_luci-app-easytier \
+            CONFIG_PACKAGE_easytier \
+            CONFIG_PACKAGE_luci-app-diskman \
+            CONFIG_PACKAGE_luci-app-samba4 \
+            CONFIG_PACKAGE_luci-app-upnp \
+            CONFIG_PACKAGE_luci-app-ttyd \
+            CONFIG_PACKAGE_luci-app-wechatpush \
+            CONFIG_PACKAGE_luci-theme-argon \
+            CONFIG_PACKAGE_kmod-rkp-ipid \
+            CONFIG_PACKAGE_kmod-usb-storage-uas \
+            CONFIG_PACKAGE_kmod-fs-ntfs3 \
+            CONFIG_PACKAGE_kmod-fs-exfat \
+            CONFIG_PACKAGE_kmod-fs-ext4 \
+            CONFIG_PACKAGE_kmod-fs-btrfs
+          do
+            check "$s"
+          done
+          echo "  --- 确认没有 Docker ---"
+          if grep -qE '^CONFIG_PACKAGE_(docker|dockerd|containerd|runc|luci-app-dockerman)=y' .config; then
+            echo "  [!! ] 检测到 Docker 相关包被选中！"; fail=1
+          else
+            echo "  [OK ] 无 Docker"
+          fi
+          echo "  --- 内核版本 ---"
+          grep -E '^CONFIG_LINUX_' .config | head -5 || true
+          if [ "$fail" -ne 0 ]; then
+            echo "!!! 自检未通过，但仍继续编译以便查看日志 !!!"
+          fi
+
+      - name: 校验第三方包的 .config 是否真的被 kconfig 保留
+        run: |
+          cd "${SOURCE_DIR}"
+          echo "================ 第三方包 CONFIG 落盘确认 ================"
+          for s in CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-app-easytier \
+                   CONFIG_PACKAGE_easytier CONFIG_PACKAGE_kmod-rkp-ipid; do
+            if grep -q "^${s}=y" .config; then
+              echo "  [OK ] ${s} 已被保留"
+            else
+              echo "  [!! ] ${s} 被 defconfig 丢弃 —— 说明 feeds install 没登记到该包"
+              grep -rn "${s#CONFIG_PACKAGE_}" scripts/ 2>/dev/null | head -1 || true
+            fi
+          done
+          echo "--- .config 里可选的 rkp-ipid 相关项 ---"
+          grep -i 'rkp' .config || echo "  (无)"
+
+      - name: 下载源码包
+        run: |
+          cd "${SOURCE_DIR}"
+          make download -j"$(nproc)" || make download -j1 V=s
+          find dl -size -1024c -exec ls -l {} \; || true
+          find dl -size -1024c -exec rm -f {} \; || true
+
+      - name: 编译固件
+        run: |
+          cd "${SOURCE_DIR}"
+          echo -e "$(nproc) thread compile"
+          make -j"$(nproc)" || make -j1 V=s
+          echo "================ 产物 ================"
+          ls -lh bin/targets/mediatek/filogic/ || true
+
+      - name: 整理产物
+        if: always()
+        run: |
+          cd "${SOURCE_DIR}"
+          mkdir -p "${GITHUB_WORKSPACE}/out"
+          OUT="${GITHUB_WORKSPACE}/out"
+          TARGET_DIR="bin/targets/mediatek/filogic"
+          if [ -d "${TARGET_DIR}" ]; then
+            # sysupgrade 固件（.itb，给 eMMC 用）与 initramfs 恢复镜像
+            for pat in '*sysupgrade*' '*recovery*' '*.manifest' '*.config' 'sha256sums' 'profiles.json'; do
+              find "${TARGET_DIR}" -maxdepth 1 -name "${pat}" -exec cp -v {} "${OUT}/" \; 2>/dev/null || true
+            done
+            # u-boot / gpt 等产物（如果本次编译产生了，一并保存）
+            for pat in '*preloader*' '*bl31-uboot*' '*emmc-gpt*'; do
+              find "${TARGET_DIR}" -maxdepth 1 -name "${pat}" -exec cp -v {} "${OUT}/" \; 2>/dev/null || true
+            done
+          fi
+          cd "${OUT}"
+          STAMP="$(date +%Y%m%d)"
+          for f in *; do
+            [ -f "${f}" ] && mv "${f}" "AkiSenSCWrt-${STAMP}-${f}" 2>/dev/null || true
+          done
+          sha256sum ./* > SHA256SUMS.txt 2>/dev/null || true
+          ls -lh
+          echo "OUT_DIR=${OUT}" >> "${GITHUB_ENV}"
+
+      - name: 上传固件
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AkiSenSCWrt-RAX3000M-eMMC-${{ github.run_number }}
+          path: ${{ github.workspace }}/out/*
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: 上传编译日志（失败时排查用）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: |
+            immortalwrt/logs/
+            immortalwrt/.config
+          if-no-files-found: ignore
+          retention-days: 7
