@@ -145,6 +145,17 @@ WIFI_24_SSID='Aris'
 WIFI_5G_SSID='Aris_5G'
 WIFI_KEY='wdnmd123456789'
 
+# 5GHz 用 HE160（160MHz）：MT7981 支持，实测原厂/现有固件就是这么用的。
+# 2.4GHz 用 HE40（40MHz）：2.4G 频段拥挤，40MHz 已是上限（再宽要 80MHz 无意义且更吵）。
+#
+# ⚠️ 160MHz 的现实代价（和"高功率不稳定"可能是同一类问题）：
+#   中国区 5GHz 要凑出连续 160MHz，只能用 36-64 或 100-128 这两段，
+#   而它们**都含 DFS 信道**（52-64 / 100-140 需要雷达检测 DFS）。
+#   - 一旦检测到雷达信号，AP 会强制退避/切信道 → 表现为**突然断流几秒到几十秒**
+#   - 这是法规要求，不是固件 bug
+#   如果遇到卡顿，把 5G 换成 HE80 并固定到非 DFS 信道（36/40/44/48）会稳定很多。
+#   这里 channel 用 'auto'，让 ACS 自动挑相对干净的信道。
+
 if command -v wifi >/dev/null 2>&1; then
 
     add_wifi() {
@@ -181,7 +192,7 @@ if command -v wifi >/dev/null 2>&1; then
         band=$(jsonfilter -e "@.radios[*].band" < /etc/board.json 2>/dev/null | sed -n "$((IDX + 1))p")
         case "${band}" in
             2g) add_wifi   '2g' "${WIFI_24_SSID}" 'HE40' '20' "${IDX}" ;;
-            5g) add_wifi   '5g' "${WIFI_5G_SSID}" 'HE80' '20' "${IDX}" ;;
+            5g) add_wifi   '5g' "${WIFI_5G_SSID}" 'HE160' '20' "${IDX}" ;;
             6g) add_wifi   '6g' "${WIFI_5G_SSID}" 'HE160' '20' "${IDX}" ;;
             *)  : ;;
         esac
@@ -195,7 +206,7 @@ if command -v wifi >/dev/null 2>&1; then
         [ -n "${radio0_path}" ] && {
             __path="${radio0_path}"; add_wifi '2g' "${WIFI_24_SSID}" 'HE40' '20' 0; }
         [ -n "${radio1_path}" ] && {
-            __path="${radio1_path}"; add_wifi '5g' "${WIFI_5G_SSID}" 'HE80' '20' 1; }
+            __path="${radio1_path}"; add_wifi '5g' "${WIFI_5G_SSID}" 'HE160' '20' 1; }
     fi
 fi
 
