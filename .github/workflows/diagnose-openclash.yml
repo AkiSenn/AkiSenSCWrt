@@ -1,0 +1,103 @@
+name: Diagnose OpenClash package registration
+
+on:
+  workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  TZ: Asia/Shanghai
+
+jobs:
+  diag:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装最小依赖
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y build-essential ccache clang flex bison g++ \
+            gawk gcc-multilib g++-multilib gettext git libncurses5-dev \
+            libssl-dev python3 python3-pip rsync unzip zlib1g-dev file wget \
+            libelf-dev ecj fastjar re2c subversion swig
+
+      - name: 克隆源码 + feeds
+        run: |
+          git clone --depth=1 -b "${REPO_BRANCH}" "${REPO_URL}" immortalwrt
+          cd immortalwrt
+          printf '%s\n' \
+            'src-git packages https://github.com/immortalwrt/packages.git;openwrt-24.10' \
+            'src-git luci https://github.com/immortalwrt/luci.git;openwrt-24.10' \
+            'src-git routing https://github.com/openwrt/routing.git;openwrt-24.10' \
+            'src-git telephony https://github.com/openwrt/telephony.git;openwrt-24.10' \
+            > feeds.conf.default
+          cat feeds.conf.default
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 诊断 1 — feeds 里 openclash 的注册状态
+        run: |
+          cd immortalwrt
+          echo "################ 1. feeds list 搜索 openclash ################"
+          ./scripts/feeds list 2>/dev/null | grep -i openclash || echo "  feeds list 里没有 openclash"
+          echo
+          echo "################ 2. 包目录与符号链接 ################"
+          ls -la package/feeds/luci/ 2>/dev/null | grep -i openclash || echo "  package/feeds/luci/ 下无 openclash"
+          echo "--- 实测目录内容 ---"
+          ls -la package/feeds/luci/luci-app-openclash/ 2>/dev/null || echo "  目录不存在"
+          echo
+          echo "################ 3. Makefile 是否存在及关键行 ################"
+          if [ -f package/feeds/luci/luci-app-openclash/Makefile ]; then
+            grep -nE 'PKG_NAME|LUCI_TITLE|LUCI_DEPENDS|include .*luci\.mk|BuildPackage|Package/' \
+              package/feeds/luci/luci-app-openclash/Makefile
+          else
+            echo "  Makefile 不存在！"
+          fi
+          echo
+          echo "################ 4. 对比：一个正常的 luci 包 (diskman) ################"
+          ls -la package/feeds/luci/luci-app-diskman 2>/dev/null || echo "  diskman 也不存在"
+
+      - name: 诊断 2 — 生成 kconfig 并搜索 clash 符号
+        run: |
+          cd immortalwrt
+          echo "################ 5. 有无 .config 时的 kconfig 符号 ################"
+          rm -f .config
+          make defconfig >/dev/null 2>&1 || true
+          echo "--- defconfig 后 .config 里搜 clash ---"
+          grep -i clash .config || echo "  .config 里没有 clash 符号"
+          echo
+          echo "################ 6. 直接问 kconfig 有没有这个符号 ################"
+          grep -rn 'luci-app-openclash' tmp/.config-package.in 2>/dev/null | head -5 || echo "  tmp/.config-package.in 里没有"
+          echo "--- tmp/.config-package.in 里搜 clash（不区分大小写） ---"
+          grep -in 'clash' tmp/.config-package.in 2>/dev/null | head -10 || echo "  完全没有 clash"
+          echo
+          echo "################ 7. 该包在 package index 里的完整信息 ################"
+          if [ -f tmp/.packageinfo ]; then
+            grep -n -A25 '^Package: luci-app-openclash$' tmp/.packageinfo | head -40
+          fi
+          echo "--- .packageinfo 里有几个 openclash ---"
+          grep -c 'openclash' tmp/.packageinfo 2>/dev/null || echo 0
+
+      - name: 诊断 3 — 尝试显式选中该包
+        run: |
+          cd immortalwrt
+          echo "################ 8. 显式 make menuconfig 选中它 ################"
+          # 用 scripts/config 尝试设置符号，看 kconfig 是否认得
+          if grep -q 'CONFIG_PACKAGE_luci-app-openclash' tmp/.config-package.in 2>/dev/null; then
+            echo "  [OK] kconfig 里有 CONFIG_PACKAGE_luci-app-openclash 符号"
+          else
+            echo "  [!!] kconfig 里没有这个符号 —— 包没被登记"
+          fi
+          echo
+          echo "################ 9. scripts/feeds install 单独装它 ################"
+          ./scripts/feeds install luci-app-openclash 2>&1 | tail -5
+          echo
+          echo "################ 10. 再查一次符号 ################"
+          grep -in 'clash' tmp/.config-package.in 2>/dev/null | head -5 || echo "  依然没有"
+          echo
+          echo "################ 11. 结论数据：package 目录树（luci 相关） ################"
+          find package/feeds/luci -maxdepth 1 -name '*openclash*' -o -maxdepth 1 -name '*clash*' | head
+          echo "--- 源目录是否有 Makefile ---"
+          find feeds/luci -maxdepth 3 -path '*openclash*' -name Makefile
