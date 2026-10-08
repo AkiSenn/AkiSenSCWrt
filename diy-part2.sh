@@ -215,12 +215,23 @@ UCIEOF
 chmod 0755 "${OVERLAY}/etc/uci-defaults/99-akisen-settings"
 
 # ---------------------------------------------------------------
-# 3. rkp-ipid 开机加载参数（只改 IPID，随机很吃性能所以默认用递增）
+# 3. rkp-ipid 开机加载参数
 # ---------------------------------------------------------------
-mkdir -p "${OVERLAY}/etc/modules.d"
-cat > "${OVERLAY}/etc/modules.d/99-rkp-ipid" <<'IPIDEOF'
-rkp-ipid
-IPIDEOF
+# ★★ 重要：这里【不要】自己创建 /etc/modules.d/99-rkp-ipid ！★★
+#
+# rkp-ipid 包的 Makefile 里已经有：
+#     AUTOLOAD:=$(call AutoLoad, 99, rkp-ipid)
+# 它会自己在 rootfs 里生成 /etc/modules.d/99-rkp-ipid。
+#
+# 如果我们在 base-files overlay 里手写同名文件，opkg 会报：
+#     check_data_file_clashes: Package kmod-rkp-ipid wants to install file
+#       .../etc/modules.d/99-rkp-ipid
+#       But that file is already provided by package * base-files
+#     opkg_install_cmd: Cannot install package kmod-rkp-ipid.
+# 结果整个 package/install 阶段失败，固件生不出来。（上一轮就是这么挂的）
+#
+# 所以交给包自己管理。如果以后要改加载参数，用 UCI 或改包源码，
+# 不要在这里塞同名文件。
 
 # ---------------------------------------------------------------
 # 4. rkp-ipid 配套防火墙规则（mangle 表打 MARK），与 OpenClash 透明共存
