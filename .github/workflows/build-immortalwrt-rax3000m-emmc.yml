@@ -268,6 +268,28 @@ jobs:
           echo "--- 总选中包数 ---"
           grep -cE '^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y' .config
 
+      # ★★ 防呆：确认没有开启会破坏"可后续安装软件"的裁剪选项 ★★
+      # USE_MKLIBS 会在 aarch64 上触发 library reduction 失败（run #4 死因），
+      # 且两者都会破坏与未选中包的兼容性。
+      - name: 校验 USE_MKLIBS / STRIP_KERNEL_EXPORTS 已关闭
+        run: |
+          cd "${SOURCE_DIR}"
+          echo "================ 库/内核裁剪选项状态 ================"
+          bad=0
+          for s in CONFIG_USE_MKLIBS CONFIG_STRIP_KERNEL_EXPORTS; do
+            if grep -qE "^${s}=y" .config; then
+              echo "  [!! ] ${s}=y —— 必须关闭！会破坏库/内核模块兼容性，且 USE_MKLIBS 会直接导致构建失败"
+              bad=1
+            elif grep -qE "^# ${s} is not set|^${s}=n" .config; then
+              echo "  [OK ] ${s} 已关闭"
+            else
+              echo "  [OK ] ${s} 未出现（默认即关闭）"
+            fi
+          done
+          if [ "$bad" -ne 0 ]; then
+            echo "!!! 裁剪选项未关闭，本次构建可能再次失败 !!!"
+          fi
+
       - name: 下载源码包
         run: |
           cd "${SOURCE_DIR}"
@@ -279,7 +301,17 @@ jobs:
         run: |
           cd "${SOURCE_DIR}"
           echo -e "$(nproc) thread compile"
-          make -j"$(nproc)" || make -j1 V=s
+          if make -j"$(nproc)"; then
+            echo "=== 并行编译成功 ==="
+          else
+            echo "=== 并行编译失败，改用 -j1 V=s 重跑以获取完整错误 ==="
+            make -j1 V=s 2>&1 | tee /tmp/build_verbose.log
+            rc=${PIPESTATUS[0]}
+            echo "=== 详细日志尾部（真正的报错在这里） ==="
+            grep -nE 'Error [0-9]|make(\[[0-9]\])?: \*\*\*|ERROR:|Library not found|Cannot install|Collected errors|check_data_file_clashes' \
+              /tmp/build_verbose.log | tail -40 || true
+            exit "$rc"
+          fi
           echo "================ 产物 ================"
           ls -lh bin/targets/mediatek/filogic/ || true
 
