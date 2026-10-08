@@ -249,6 +249,25 @@ jobs:
             echo "!!! Rust 未被成功排除，本次构建极可能再次 6 小时超时 !!!"
           fi
 
+      # 诊断：列出被 kconfig 实际选中的"重型"包，方便下轮精简
+      - name: 诊断·列出重型构建依赖
+        run: |
+          cd "${SOURCE_DIR}"
+          echo "================ 重型包选中情况 ================"
+          for s in python3 python3-base python perl ruby rust cargo \
+                   samba4 ksmbd-server openssl-util \
+                   luci-app-openclash luci-app-easytier easytier \
+                   kmod-rkp-ipid dnsmasq-full luci-app-samba4 luci-app-ksmbd; do
+            v=$(grep -m1 "^CONFIG_PACKAGE_${s}=" .config 2>/dev/null | cut -d= -f2)
+            printf '  %-28s %s\n' "$s" "${v:-<未出现>}"
+          done
+          echo "--- 所有被选中的 python 相关（非注释行） ---"
+          grep -E '^CONFIG_PACKAGE_python' .config || echo "  (无 python 包被选中)"
+          echo "--- 被选中的 RUBY/YJIT ---"
+          grep -iE 'RUBY|YJIT' .config || echo "  (无)"
+          echo "--- 总选中包数 ---"
+          grep -cE '^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y' .config
+
       - name: 下载源码包
         run: |
           cd "${SOURCE_DIR}"
