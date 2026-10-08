@@ -47,22 +47,38 @@ clone_pkg() {
 
 echo ">>> 克隆第三方包源码..."
 
-# OpenClash（透明代理）
-clone_pkg "OpenClash" "luci-app-openclash" "${OPENCLASH_BRANCH:-master}" \
-    "https://github.com/vernesong/OpenClash.git" \
-    "https://gitee.com/vernesong/OpenClash.git" || true
+# ---------------------------------------------------------------
+# ★★ OpenClash：不要自己克隆！用官方 luci feed 里的版本 ★★
+#
+# 官方 immortalwrt/luci 的 openwrt-24.10 分支里**已经有 luci-app-openclash**，
+# 而且版本就是最新的 0.47.156（和 vernesong/OpenClash 的 master 完全一致）。
+#
+# 如果我们在 package/ 下再克隆一份同名包，会出现同名包冲突：
+#     package/luci-app-openclash            <- 我们克隆的
+#     package/feeds/luci/luci-app-openclash <- feeds install 建立的
+# 结果 make defconfig 反而把 CONFIG_PACKAGE_luci-app-openclash 丢掉，
+# 固件里就没有 OpenClash 了（run #5 就是这样，自检报了 [!!] 缺失）。
+#
+# 所以这里只做检查，不克隆。
+OPKG_CLASH_FROM_FEED=1
+if [ -d "${OPENWRT_DIR}/feeds/luci/applications/luci-app-openclash" ]; then
+    echo "    [OK] OpenClash 由官方 luci feed 提供（不自行克隆，避免同名包冲突）"
+else
+    echo "    [!! ] 官方 feed 里没有 luci-app-openclash，退回自行克隆"
+    OPKG_CLASH_FROM_FEED=0
+    clone_pkg "OpenClash" "luci-app-openclash" "${OPENCLASH_BRANCH:-master}" \
+        "https://github.com/vernesong/OpenClash.git" \
+        "https://gitee.com/vernesong/OpenClash.git" || true
+fi
 
-# EasyTier（异地组网）—— 仓库含 easytier / easytier-noweb / luci-app-easytier
+# EasyTier（异地组网）—— 官方 feed 没有，必须自己拉
+# 仓库含 easytier / easytier-noweb / luci-app-easytier
 clone_pkg "EasyTier" "luci-app-easytier" "main" \
     "https://github.com/EasyTier/luci-app-easytier.git" || true
 
-# rkp-ipid（IPID 改写，防校园网 NAT 指纹检测）
+# rkp-ipid（IPID 改写，防校园网 NAT 指纹检测）—— 官方 feed 没有，必须自己拉
 clone_pkg "rkp-ipid" "rkp-ipid" "master" \
     "https://github.com/OpenWrtLi/UA2F-rkp-ipid.git" || true
-# 该仓库的 Makefile 直接构建 rkp-ipid 内核模块，改名以便识别
-if [ -d "${OPENWRT_DIR}/package/rkp-ipid" ]; then
-    rm -f "${OPENWRT_DIR}/package/rkp-ipid/README.md" 2>/dev/null || true
-fi
 
 # ---------------------------------------------------------------
 # 2. 首次启动默认配置（uci-defaults，只跑一次，之后可自由修改）
