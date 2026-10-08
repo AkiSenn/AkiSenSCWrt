@@ -37,7 +37,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 350
+    # GitHub 单个 job 硬上限是 6 小时 = 360 分钟。设满额，别再用 350 自己提前砍死。
+    timeout-minutes: 360
     name: ImmortalWrt 24.10.6 / RAX3000M-eMMC
 
     steps:
@@ -204,6 +205,49 @@ jobs:
           done
           echo "--- .config 里可选的 rkp-ipid 相关项 ---"
           grep -i 'rkp' .config || echo "  (无)"
+
+      # ★★ 关键防呆：确认 Rust 工具链没有被拖进来 ★★
+      # 上一轮构建失败的真因：ruby 的 YJIT 在 aarch64 上默认开启，
+      # 导致从源码编译整个 Rust + LLVM，50 分钟都编不完，把 6 小时跑满超时。
+      - name: 校验 Rust / Ruby YJIT 已关闭（防止再次超时）
+        run: |
+          cd "${SOURCE_DIR}"
+          echo "================ Rust / YJIT 状态 ================"
+          bad=0
+
+          echo "--- RUBY_ENABLE_YJIT ---"
+          if grep -qE '^CONFIG_RUBY_ENABLE_YJIT=y' .config; then
+            echo "  [!! ] CONFIG_RUBY_ENABLE_YJIT=y  —— YJIT 还开着，会编译整个 Rust，必须关掉！"
+            bad=1
+          elif grep -qE '^# CONFIG_RUBY_ENABLE_YJIT is not set|^CONFIG_RUBY_ENABLE_YJIT=n' .config; then
+            echo "  [OK ] YJIT 已关闭"
+          else
+            echo "  [?? ] .config 里没有 RUBY_ENABLE_YJIT 这一项（可能未被定义）"
+            grep -i 'yjit' .config || echo "       (grep yjit 无结果)"
+          fi
+
+          echo "--- PACKAGE_rust ---"
+          if grep -qE '^CONFIG_PACKAGE_rust=y' .config; then
+            echo "  [!! ] CONFIG_PACKAGE_rust=y —— Rust 被选中，构建会爆炸"
+            bad=1
+          else
+            echo "  [OK ] 未选中 rust 包"
+          fi
+
+          echo "--- 最终会参与构建的 rust/cargo 相关项 ---"
+          grep -iE '^CONFIG_.*(RUST|CARGO)' .config | grep -v '^#' || echo "  (无)"
+
+          echo "--- 预判：feeds/packages/lang/rust 是否会进入构建 ---"
+          if grep -qE '^(CONFIG_PACKAGE_rust|CONFIG_RUBY_ENABLE_YJIT)=y' .config; then
+            echo "  [!! ] 会被构建 —— 这次又要超时"
+            bad=1
+          else
+            echo "  [OK ] 不会构建 Rust 工具链"
+          fi
+
+          if [ "$bad" -ne 0 ]; then
+            echo "!!! Rust 未被成功排除，本次构建极可能再次 6 小时超时 !!!"
+          fi
 
       - name: 下载源码包
         run: |
