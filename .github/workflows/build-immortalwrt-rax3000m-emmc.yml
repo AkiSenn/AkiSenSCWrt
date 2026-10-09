@@ -95,6 +95,19 @@ jobs:
           EOF
           cat feeds.conf.default
 
+      # ccache 目录必须先真实存在，否则 actions/cache 会报
+      # "Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved"
+      # 而且保存步骤会被静默跳过（run #8 就是这样，缓存白丢）。
+      - name: 准备 ccache 目录
+        if: inputs.use_ccache
+        run: |
+          mkdir -p "${HOME}/.ccache"
+          if command -v ccache >/dev/null 2>&1; then
+            ccache -M 20G || true
+            ccache -s || true
+          fi
+          ls -ld "${HOME}/.ccache"
+
       - name: ccache 缓存
         if: inputs.use_ccache
         uses: actions/cache@v4
@@ -116,9 +129,13 @@ jobs:
           cp "${GITHUB_WORKSPACE}/${CONFIG_FILE}" .config
           cp "${GITHUB_WORKSPACE}/${DIY_P2}" diy-part2.sh
           chmod +x diy-part2.sh
-          # ccache 目录
-          sed -i 's|^CONFIG_CCACHE_DIR=.*|CONFIG_CCACHE_DIR="$HOME/.ccache"|' .config 2>/dev/null || true
-          echo 'CONFIG_CCACHE_DIR="$HOME/.ccache"' >> .config
+          # ccache 目录（用展开后的绝对路径，不要写 $HOME 字面量，
+          # 否则 OpenWrt 会把 "$HOME/.ccache" 当字面字符串，ccache 用不上）
+          sed -i '/^CONFIG_CCACHE_DIR=/d;/^CONFIG_CCACHE=/d' .config
+          {
+            echo "CONFIG_CCACHE=y"
+            echo "CONFIG_CCACHE_DIR=\"${HOME}/.ccache\""
+          } >> .config
 
       - name: 执行 diy-part2.sh（拉取 OpenClash / EasyTier / rkp-ipid 源码 + 注入默认配置）
         env:
