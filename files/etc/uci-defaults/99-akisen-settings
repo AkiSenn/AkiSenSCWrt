@@ -95,6 +95,7 @@ uci -q set fstab.@global[0].check_fs='0'
 uci -q set luci.main.lang='zh_cn'
 uci -q set luci.main.mediaurlbase='/luci-static/vantage'
 uci commit
+/etc/init.d/akisen-packet-hooks enable
 
 # Shares and formatting remain under the user's control. Never repartition
 # the existing eMMC or expose its whole data disk to anonymous SMB clients.

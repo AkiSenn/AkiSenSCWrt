@@ -1,6 +1,11 @@
 #!/bin/sh
 # Called after firewall reload and WAN reconnect. Isolated table, no DNS changes.
 . /lib/functions/network.sh
+# The proprietary driver has its own offload switch, independent of fw4.
+# Keep proxy/netfilter hooks effective even when campus rewriting is disabled.
+if [ -w /sys/kernel/debug/hnat/hook_toggle ]; then
+    printf '0\n' > /sys/kernel/debug/hnat/hook_toggle
+fi
 nft list table inet akisen_campus >/dev/null 2>&1 && nft delete table inet akisen_campus
 [ "$(uci -q get campus.main.enabled)" = 1 ] || exit 0
 network_get_device wan_device wan || exit 0
