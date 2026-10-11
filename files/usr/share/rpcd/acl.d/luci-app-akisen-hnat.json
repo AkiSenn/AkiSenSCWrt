@@ -1,0 +1,7 @@
+{
+    "luci-app-akisen-hnat": {
+        "description": "Configure the retained MTK HNAT module",
+        "read": {"uci": ["akisen-hnat"]},
+        "write": {"uci": ["akisen-hnat"]}
+    }
+}

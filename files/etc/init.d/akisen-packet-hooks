@@ -1,6 +1,15 @@
 #!/bin/sh /etc/rc.common
 START=95
+USE_PROCD=1
 
-start() {
+start_service() {
     /usr/libexec/akisen-campus
+}
+
+reload_service() {
+    start_service
+}
+
+service_triggers() {
+    procd_add_reload_trigger 'akisen-hnat' 'campus' 'openclash'
 }

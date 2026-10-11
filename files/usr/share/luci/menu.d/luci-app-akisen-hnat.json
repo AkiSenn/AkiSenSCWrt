@@ -1,0 +1,14 @@
+{
+    "admin/network/akisen-hnat": {
+        "title": "MTK HNAT",
+        "order": 85,
+        "action": {
+            "type": "view",
+            "path": "akisen/hnat"
+        },
+        "depends": {
+            "acl": ["luci-app-akisen-hnat"],
+            "uci": {"akisen-hnat": true}
+        }
+    }
+}

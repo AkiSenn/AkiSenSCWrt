@@ -9,7 +9,7 @@ FORBIDDEN = re.compile(r'^(docker(?:d)?|containerd|runc|luci-app-dockerman|luci-
 REQUIRED = '''luci-app-openclash dnsmasq-full kmod-tun kmod-nft-tproxy
 kmod-nft-socket kmod-nf-tproxy kmod-nf-socket kmod-inet-diag
 kmod-nf-conntrack-netlink kmod-ipt-ipopt iptables-mod-ipopt iptables-nft
-kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg
+kmod-mt_wifi kmod-conninfra kmod-warp kmod-mediatek_hnat mtwifi-cfg luci-app-mtwifi-cfg
 kmod-rkp-ipid easytier luci-app-easytier luci-app-samba4 samba4-server
 luci-app-diskman luci-app-upnp luci-app-ttyd luci-app-wechatpush
 luci-theme-vantage luci-app-vantage luci-theme-bootstrap

@@ -16,6 +16,7 @@
 - Vantage 主题和面板，保留 Bootstrap 恢复入口。
 - `kmod-rkp-ipid`、`kmod-ipt-ipopt` 与 `iptables-mod-ipopt`，附可关闭的校园网 TTL/IPID 功能。
 - 不集成 Docker、dockerd、containerd、runc 或 Dockerman。
+- 保留 MTK HNAT 模块和“网络 → MTK HNAT”开关，默认关闭。开启 OpenClash 或校园网功能时自动暂停硬件加速，避免绕过报文处理。
 
 Vantage 上游只验证了 OpenWrt 25.12，24.10 和厂商无线接口仍需实机验证。160MHz 涉及 DFS，遇到雷达退避可改 HE80；不修改校准数据增加功率。
 
