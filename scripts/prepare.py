@@ -94,7 +94,9 @@ def main():
     # device profile rather than copying its obsolete multi-device defconfig.
     vendor = (TREE / 'defconfig/mt7981-ax3000.config').read_text().splitlines()
     driver = [line for line in vendor if re.match(r'(CONFIG_(MTK_|CONNINFRA_|first_card)|# CONFIG_MTK_)', line)]
-    write(TREE / '.config', '\n'.join(driver) + '\n' + (ROOT / 'rax3000m-emmc.config').read_text())
+    cache = str(Path.home() / '.ccache')
+    write(TREE / '.config', '\n'.join(driver) + '\n' + (ROOT / 'rax3000m-emmc.config').read_text()
+          + f'\nCONFIG_CCACHE_DIR="{cache}"\n')
     run('make', 'defconfig')
     run(sys.executable, str(ROOT / 'scripts/verify.py'), 'config', str(TREE / '.config'))
 

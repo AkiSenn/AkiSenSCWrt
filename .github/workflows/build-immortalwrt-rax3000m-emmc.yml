@@ -76,9 +76,6 @@ jobs:
         run: |
           cd "$SOURCE_DIR"
           python3 "$GITHUB_WORKSPACE/scripts/prepare.py"
-          ./scripts/config --set-str CCACHE_DIR "$HOME/.ccache"
-          make defconfig
-          python3 "$GITHUB_WORKSPACE/scripts/verify.py" config .config
       - name: Download package sources
         run: |
           cd "$SOURCE_DIR"
