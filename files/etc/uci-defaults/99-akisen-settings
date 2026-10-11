@@ -1,0 +1,102 @@
+#!/bin/sh
+. /lib/functions.sh
+
+uci set system.@system[0].hostname='AkiSenSCWrt'
+uci set system.@system[0].description='AkiSenn / ImmortalWrt 24.10 MTK'
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Hong_Kong'
+uci set network.lan.ipaddr='192.168.2.1'
+uci set network.lan.netmask='255.255.255.0'
+uci set network.lan.ip6assign='60'
+uci set network.wan.proto='dhcp'
+uci set network.wan.peerdns='1'
+uci set network.wan6='interface'
+uci set network.wan6.device='@wan'
+uci set network.wan6.proto='dhcpv6'
+uci set network.wan6.reqaddress='try'
+uci set network.wan6.reqprefix='auto'
+uci set dhcp.lan.ra='server'
+uci set dhcp.lan.dhcpv6='server'
+uci set dhcp.lan.ra_slaac='1'
+
+# Let mtwifi generate its own phy, DBDC and interface identifiers.
+# Do not recreate this configuration as mac80211 radio0/radio1.
+wifi config
+WIFI_KEY="$(cat /etc/akisen-wifi-key)"
+[ "${#WIFI_KEY}" -ge 8 ] || exit 1
+RADIOS=0
+configure_radio() {
+    local radio="$1" band type
+    config_get type "$radio" type
+    [ "$type" = mtwifi ] || return
+    config_get band "$radio" band
+    case "$band" in
+        2g) uci set "wireless.$radio.htmode=HE40"
+            uci set "wireless.$radio.channel=auto"
+            uci set "wireless.$radio.noscan=0" ;;
+        5g) uci set "wireless.$radio.htmode=HE160"
+            uci set "wireless.$radio.channel=36" ;;
+        *) return ;;
+    esac
+    uci set "wireless.$radio.country=CN"
+    # mtwifi's TxPower is a percentage, not dBm. 100 = stock calibration.
+    uci set "wireless.$radio.txpower=100"
+    uci set "wireless.$radio.mu_beamformer=1"
+    uci set "wireless.$radio.disabled=0"
+    RADIOS=$((RADIOS + 1))
+}
+configure_ap() {
+    local iface="$1" radio band
+    config_get radio "$iface" device
+    config_get band "$radio" band
+    case "$band" in
+        2g) uci set "wireless.$iface.ssid=Aris" ;;
+        5g) uci set "wireless.$iface.ssid=Aris_5G" ;;
+        *) return ;;
+    esac
+    uci set "wireless.$iface.mode=ap"
+    uci set "wireless.$iface.network=lan"
+    uci set "wireless.$iface.encryption=psk2+ccmp"
+    uci set "wireless.$iface.key=$WIFI_KEY"
+    uci set "wireless.$iface.disabled=0"
+}
+config_load wireless
+config_foreach configure_radio wifi-device
+[ "$RADIOS" -eq 2 ] || { logger -t AkiSenSCWrt 'mtwifi radio discovery failed; retry defaults on reboot'; exit 1; }
+config_foreach configure_ap wifi-iface
+
+# Keep packet hooks effective for OpenClash and optional IPID rewriting.
+uci set firewall.@defaults[0].flow_offloading='0'
+uci set firewall.@defaults[0].flow_offloading_hw='0'
+uci set firewall.akisen_campus='include'
+uci set firewall.akisen_campus.type='script'
+uci set firewall.akisen_campus.path='/usr/libexec/akisen-campus'
+uci set firewall.akisen_campus.fw4_compatible='1'
+
+uci -q set openclash.config.enable='0'
+uci -q set openclash.config.core_type='Meta'
+uci -q set openclash.config.ipv6_enable='1'
+uci -q set upnpd.config.enabled='1'
+uci -q set upnpd.config.enable_upnp='1'
+uci -q set upnpd.config.enable_natpmp='1'
+uci -q set upnpd.config.secure_mode='1'
+uci -q set upnpd.config.internal_iface='lan'
+uci -q set upnpd.config.external_iface='wan'
+uci -q set upnpd.config.external_iface6='wan6'
+uci -q set ttyd.@ttyd[0].interface='@lan'
+uci -q set ttyd.@ttyd[0].command='/bin/login'
+uci -q set samba4.@samba4[0].workgroup='WORKGROUP'
+uci -q set samba4.@samba4[0].description='AkiSenSCWrt'
+uci -q set samba4.@samba4[0].interface='lan'
+uci -q set samba4.@samba4[0].homes='0'
+uci -q set fstab.@global[0].anon_mount='0'
+uci -q set fstab.@global[0].auto_mount='1'
+uci -q set fstab.@global[0].check_fs='0'
+uci -q set luci.main.lang='zh_cn'
+uci -q set luci.main.mediaurlbase='/luci-static/vantage'
+uci commit
+
+# Shares and formatting remain under the user's control. Never repartition
+# the existing eMMC or expose its whole data disk to anonymous SMB clients.
+rm -f /etc/akisen-wifi-key
+exit 0

@@ -1,0 +1,4 @@
+config campus 'main'
+	option enabled '0'
+	option ttl '64'
+	option ipid '1'

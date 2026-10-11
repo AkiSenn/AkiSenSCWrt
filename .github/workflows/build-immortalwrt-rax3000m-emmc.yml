@@ -1,51 +1,33 @@
-#
-# ImmortalWrt 24.10.6 云编译 — CMCC RAX3000M (eMMC / 算力版)
-# AkiSenSCWrt / AkiSenn
-#
-# 目标: mediatek/filogic  cmcc,rax3000m-emmc   aarch64_cortex-a53
-# 内核: 6.6 LTS（OpenClash 所需 kmod 全部内建，避免事后装不上）
-#
 name: Build AkiSenSCWrt (RAX3000M eMMC)
-
 on:
   workflow_dispatch:
     inputs:
-      openclash_branch:
-        description: 'OpenClash 分支 (master = 稳定 / dev = 开发版)'
-        required: true
-        default: 'master'
-        type: choice
-        options:
-          - master
-          - dev
       use_ccache:
-        description: '启用 ccache 缓存（二次编译加速，首次会稍慢）'
-        required: true
-        default: true
+        description: Reuse compiler cache
         type: boolean
-  # 注意：故意不加 push 触发。
-  # 否则每次修改配置/脚本都会自动多跑一次全量编译（约 2-4 小时），
-  # 白白消耗 Actions 额度。需要编译时手动 Run workflow 即可。
-
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: rax3000m-emmc-mtk
+  cancel-in-progress: false
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-24.10
-  CONFIG_FILE: rax3000m-emmc.config
-  DIY_P2: diy-part2.sh
-  TZ: Asia/Shanghai
-
+  TZ: Asia/Hong_Kong
+  SOURCE_DIR: /workdir/immortalwrt
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # GitHub 单个 job 硬上限是 6 小时 = 360 分钟。设满额，别再用 350 自己提前砍死。
     timeout-minutes: 360
-    name: ImmortalWrt 24.10.6 / RAX3000M-eMMC
-
     steps:
-      - name: 检出本仓库
-        uses: actions/checkout@v4
-
-      - name: 释放磁盘空间
+      - uses: actions/checkout@v4
+      - name: Require private build settings
+        env:
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+          ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASSWORD }}
+        run: |
+          test -n "$WIFI_PASSWORD"
+          test -n "$ARTIFACT_PASSWORD"
+      - name: Free build space
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: false
@@ -55,325 +37,87 @@ jobs:
           large-packages: false
           docker-images: true
           swap-storage: false
-
-      - name: 安装编译依赖
+      - name: Install build dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install -y \
-            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex \
-            gawk gcc-multilib g++-multilib gettext genisoimage git gperf haveged \
-            help2man intltool lib32gcc-s1 lib32stdc++6 libc6-dev-i386 libelf-dev \
-            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev \
-            libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lld \
-            libncurses-dev msmtp nano ninja-build p7zip p7zip-full patch pkgconf \
-            python3 python3-pip python3-ply python3-docutils python3-pkg-resources \
-            qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo \
-            uglifyjs unzip vim wget xmlto xxd zlib1g-dev zstd file
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
-          sudo timedatectl set-timezone "${TZ}" || true
-
-      - name: 克隆 ImmortalWrt 源码
-        run: |
-          df -h
-          git clone --depth=1 -b "${REPO_BRANCH}" "${REPO_URL}" immortalwrt
-          cd immortalwrt
-          echo "SOURCE_DIR=${GITHUB_WORKSPACE}/immortalwrt" >> "${GITHUB_ENV}"
-          git log -1 --format='%H %ci %s'
-
-      - name: 修复 feeds（git.openwrt.org 在 CI 上常不可达，改用 GitHub 镜像）
-        run: |
-          cd "${SOURCE_DIR}"
-          cat > feeds.conf.default <<'EOF'
-          src-git packages https://github.com/immortalwrt/packages.git;openwrt-24.10
-          src-git luci https://github.com/immortalwrt/luci.git;openwrt-24.10
-          src-git routing https://github.com/openwrt/routing.git;openwrt-24.10
-          src-git telephony https://github.com/openwrt/telephony.git;openwrt-24.10
-          EOF
-          cat feeds.conf.default
-
-      # ccache 目录必须先真实存在，否则 actions/cache 会报
-      # "Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved"
-      # 而且保存步骤会被静默跳过（run #8 就是这样，缓存白丢）。
-      - name: 准备 ccache 目录
-        if: inputs.use_ccache
-        run: |
-          mkdir -p "${HOME}/.ccache"
-          if command -v ccache >/dev/null 2>&1; then
-            ccache -M 20G || true
-            ccache -s || true
-          fi
-          ls -ld "${HOME}/.ccache"
-
-      - name: ccache 缓存
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y build-essential ccache clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            libelf-dev zlib1g-dev libgmp-dev libmpc-dev libmpfr-dev python3 \
+            python3-setuptools python3-dev python3-ply python3-docutils rsync \
+            unzip zstd file wget curl swig subversion help2man libtool autoconf \
+            automake autopoint gperf intltool pkgconf cmake ninja-build \
+            genisoimage device-tree-compiler libglib2.0-dev libyaml-dev \
+            libreadline-dev texinfo gnutls-dev libltdl-dev antlr3 asciidoc \
+            lib32gcc-s1 libc6-dev-i386 re2c gnupg
+          sudo mkdir -p /workdir
+          sudo chown "$USER:$USER" /workdir
+          mkdir -p "$HOME/.ccache"
+          ccache -M 6G
+      - name: Restore compiler cache
         if: inputs.use_ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ env.REPO_BRANCH }}-${{ github.run_id }}
+          key: ccache-mtk66-${{ hashFiles('sources.lock.json', 'rax3000m-emmc.config') }}-${{ github.run_id }}
           restore-keys: |
-            ccache-${{ env.REPO_BRANCH }}-
-
-      - name: 更新并安装 feeds
+            ccache-mtk66-${{ hashFiles('sources.lock.json', 'rax3000m-emmc.config') }}-
+            ccache-mtk66-
+      - name: Fetch pinned firmware and feeds
         run: |
-          cd "${SOURCE_DIR}"
+          python3 scripts/checkout-source.py "$SOURCE_DIR"
+          cd "$SOURCE_DIR"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: 注入 DIY 配置与脚本
-        run: |
-          cd "${SOURCE_DIR}"
-          cp "${GITHUB_WORKSPACE}/${CONFIG_FILE}" .config
-          cp "${GITHUB_WORKSPACE}/${DIY_P2}" diy-part2.sh
-          chmod +x diy-part2.sh
-          # ccache 目录（用展开后的绝对路径，不要写 $HOME 字面量，
-          # 否则 OpenWrt 会把 "$HOME/.ccache" 当字面字符串，ccache 用不上）
-          sed -i '/^CONFIG_CCACHE_DIR=/d;/^CONFIG_CCACHE=/d' .config
-          {
-            echo "CONFIG_CCACHE=y"
-            echo "CONFIG_CCACHE_DIR=\"${HOME}/.ccache\""
-          } >> .config
-
-      - name: 执行 diy-part2.sh（拉取 OpenClash / EasyTier / rkp-ipid 源码 + 注入默认配置）
+      - name: Configure MTK driver and private defaults
         env:
-          OPENCLASH_BRANCH: ${{ inputs.openclash_branch || 'master' }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
         run: |
-          cd "${SOURCE_DIR}"
-          bash diy-part2.sh
-
-      - name: 重新注册 feeds（关键：让刚克隆的第三方包进入 package 索引）
-        run: |
-          cd "${SOURCE_DIR}"
-          # 必须重跑一次：feeds install 会把 package/ 下的本地包也登记进索引，
-          # 否则 make defconfig 找不到 luci-app-openclash / easytier / kmod-rkp-ipid，
-          # 会把对应的 CONFIG_PACKAGE_* 直接丢掉。
-          ./scripts/feeds install -a
-          echo "================ 第三方包源码确认 ================"
-          for p in luci-app-openclash luci-app-easytier rkp-ipid; do
-            if [ -d "package/$p" ]; then echo "  [OK ] package/$p"; else echo "  [!! ] package/$p 缺失"; fi
-          done
-          echo "--- rkp-ipid 内核模块 ---"
-          grep -rl "KernelPackage/rkp-ipid" package/ 2>/dev/null || echo "  [!! ] 未找到 rkp-ipid 内核模块定义"
-          echo "--- easytier 子包 ---"
-          find package/luci-app-easytier -maxdepth 2 -name Makefile 2>/dev/null || true
-
-      - name: 生成 .config（make defconfig）
-        run: |
-          cd "${SOURCE_DIR}"
+          cd "$SOURCE_DIR"
+          python3 "$GITHUB_WORKSPACE/scripts/prepare.py"
+          ./scripts/config --set-str CCACHE_DIR "$HOME/.ccache"
           make defconfig
-          echo "================ 关键项自检 ================"
-          fail=0
-          check() { if grep -q "^$1=y" .config; then echo "  [OK ] $1"; else echo "  [!! ] $1  <-- 缺失"; fail=1; fi }
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_cmcc_rax3000m=y' .config \
-            && echo "  [OK ] 目标设备 cmcc_rax3000m" || { echo "  [!! ] 目标设备错误"; fail=1; }
-          for s in \
-            CONFIG_PACKAGE_luci-app-openclash \
-            CONFIG_PACKAGE_kmod-tun \
-            CONFIG_PACKAGE_kmod-nft-tproxy \
-            CONFIG_PACKAGE_kmod-nft-socket \
-            CONFIG_PACKAGE_kmod-nf-tproxy \
-            CONFIG_PACKAGE_kmod-inet-diag \
-            CONFIG_PACKAGE_kmod-nf-conntrack-netlink \
-            CONFIG_PACKAGE_dnsmasq-full \
-            CONFIG_PACKAGE_luci-app-easytier \
-            CONFIG_PACKAGE_easytier \
-            CONFIG_PACKAGE_luci-app-diskman \
-            CONFIG_PACKAGE_luci-app-samba4 \
-            CONFIG_PACKAGE_luci-app-upnp \
-            CONFIG_PACKAGE_luci-app-ttyd \
-            CONFIG_PACKAGE_luci-app-wechatpush \
-            CONFIG_PACKAGE_luci-theme-argon \
-            CONFIG_PACKAGE_kmod-rkp-ipid \
-            CONFIG_PACKAGE_kmod-usb-storage-uas \
-            CONFIG_PACKAGE_kmod-fs-ntfs3 \
-            CONFIG_PACKAGE_kmod-fs-exfat \
-            CONFIG_PACKAGE_kmod-fs-ext4 \
-            CONFIG_PACKAGE_kmod-fs-btrfs
-          do
-            check "$s"
-          done
-          echo "  --- 确认没有 Docker ---"
-          if grep -qE '^CONFIG_PACKAGE_(docker|dockerd|containerd|runc|luci-app-dockerman)=y' .config; then
-            echo "  [!! ] 检测到 Docker 相关包被选中！"; fail=1
-          else
-            echo "  [OK ] 无 Docker"
-          fi
-          echo "  --- 内核版本 ---"
-          grep -E '^CONFIG_LINUX_' .config | head -5 || true
-          if [ "$fail" -ne 0 ]; then
-            echo "!!! 自检未通过，但仍继续编译以便查看日志 !!!"
-          fi
-
-      - name: 校验第三方包的 .config 是否真的被 kconfig 保留
+          python3 "$GITHUB_WORKSPACE/scripts/verify.py" config .config
+      - name: Download package sources
         run: |
-          cd "${SOURCE_DIR}"
-          echo "================ 第三方包 CONFIG 落盘确认 ================"
-          for s in CONFIG_PACKAGE_luci-app-openclash CONFIG_PACKAGE_luci-app-easytier \
-                   CONFIG_PACKAGE_easytier CONFIG_PACKAGE_kmod-rkp-ipid; do
-            if grep -q "^${s}=y" .config; then
-              echo "  [OK ] ${s} 已被保留"
-            else
-              echo "  [!! ] ${s} 被 defconfig 丢弃 —— 说明 feeds install 没登记到该包"
-              grep -rn "${s#CONFIG_PACKAGE_}" scripts/ 2>/dev/null | head -1 || true
-            fi
-          done
-          echo "--- .config 里可选的 rkp-ipid 相关项 ---"
-          grep -i 'rkp' .config || echo "  (无)"
-
-      # ★★ 关键防呆：确认 Rust 工具链没有被拖进来 ★★
-      # 上一轮构建失败的真因：ruby 的 YJIT 在 aarch64 上默认开启，
-      # 导致从源码编译整个 Rust + LLVM，50 分钟都编不完，把 6 小时跑满超时。
-      - name: 校验 Rust / Ruby YJIT 已关闭（防止再次超时）
+          cd "$SOURCE_DIR"
+          make download -j8 || make download -j1 V=s
+      - name: Compile firmware
         run: |
-          cd "${SOURCE_DIR}"
-          echo "================ Rust / YJIT 状态 ================"
-          bad=0
-
-          echo "--- RUBY_ENABLE_YJIT ---"
-          if grep -qE '^CONFIG_RUBY_ENABLE_YJIT=y' .config; then
-            echo "  [!! ] CONFIG_RUBY_ENABLE_YJIT=y  —— YJIT 还开着，会编译整个 Rust，必须关掉！"
-            bad=1
-          elif grep -qE '^# CONFIG_RUBY_ENABLE_YJIT is not set|^CONFIG_RUBY_ENABLE_YJIT=n' .config; then
-            echo "  [OK ] YJIT 已关闭"
-          else
-            echo "  [?? ] .config 里没有 RUBY_ENABLE_YJIT 这一项（可能未被定义）"
-            grep -i 'yjit' .config || echo "       (grep yjit 无结果)"
-          fi
-
-          echo "--- PACKAGE_rust ---"
-          if grep -qE '^CONFIG_PACKAGE_rust=y' .config; then
-            echo "  [!! ] CONFIG_PACKAGE_rust=y —— Rust 被选中，构建会爆炸"
-            bad=1
-          else
-            echo "  [OK ] 未选中 rust 包"
-          fi
-
-          echo "--- 最终会参与构建的 rust/cargo 相关项 ---"
-          grep -iE '^CONFIG_.*(RUST|CARGO)' .config | grep -v '^#' || echo "  (无)"
-
-          echo "--- 预判：feeds/packages/lang/rust 是否会进入构建 ---"
-          if grep -qE '^(CONFIG_PACKAGE_rust|CONFIG_RUBY_ENABLE_YJIT)=y' .config; then
-            echo "  [!! ] 会被构建 —— 这次又要超时"
-            bad=1
-          else
-            echo "  [OK ] 不会构建 Rust 工具链"
-          fi
-
-          if [ "$bad" -ne 0 ]; then
-            echo "!!! Rust 未被成功排除，本次构建极可能再次 6 小时超时 !!!"
-          fi
-
-      # 诊断：列出被 kconfig 实际选中的"重型"包，方便下轮精简
-      - name: 诊断·列出重型构建依赖
+          cd "$SOURCE_DIR"
+          make -j"$(nproc)" || make -j1 V=s
+      - name: Verify firmware and preserve matching IPKs
         run: |
-          cd "${SOURCE_DIR}"
-          echo "================ 重型包选中情况 ================"
-          for s in python3 python3-base python perl ruby rust cargo \
-                   samba4 ksmbd-server openssl-util \
-                   luci-app-openclash luci-app-easytier easytier \
-                   kmod-rkp-ipid dnsmasq-full luci-app-samba4 luci-app-ksmbd; do
-            v=$(grep -m1 "^CONFIG_PACKAGE_${s}=" .config 2>/dev/null | cut -d= -f2)
-            printf '  %-28s %s\n' "$s" "${v:-<未出现>}"
-          done
-          echo "--- 所有被选中的 python 相关（非注释行） ---"
-          grep -E '^CONFIG_PACKAGE_python' .config || echo "  (无 python 包被选中)"
-          echo "--- 被选中的 RUBY/YJIT ---"
-          grep -iE 'RUBY|YJIT' .config || echo "  (无)"
-          echo "--- 总选中包数 ---"
-          grep -cE '^CONFIG_PACKAGE_[A-Za-z0-9_.+-]+=y' .config
-
-      # ★★ 防呆：确认没有开启会破坏"可后续安装软件"的裁剪选项 ★★
-      # USE_MKLIBS 会在 aarch64 上触发 library reduction 失败（run #4 死因），
-      # 且两者都会破坏与未选中包的兼容性。
-      - name: 校验 USE_MKLIBS / STRIP_KERNEL_EXPORTS 已关闭
+          cd "$SOURCE_DIR"
+          python3 "$GITHUB_WORKSPACE/scripts/collect.py" /workdir/output
+      - name: Encrypt personal firmware
+        env:
+          ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASSWORD }}
         run: |
-          cd "${SOURCE_DIR}"
-          echo "================ 库/内核裁剪选项状态 ================"
-          bad=0
-          for s in CONFIG_USE_MKLIBS CONFIG_STRIP_KERNEL_EXPORTS; do
-            if grep -qE "^${s}=y" .config; then
-              echo "  [!! ] ${s}=y —— 必须关闭！会破坏库/内核模块兼容性，且 USE_MKLIBS 会直接导致构建失败"
-              bad=1
-            elif grep -qE "^# ${s} is not set|^${s}=n" .config; then
-              echo "  [OK ] ${s} 已关闭"
-            else
-              echo "  [OK ] ${s} 未出现（默认即关闭）"
-            fi
-          done
-          if [ "$bad" -ne 0 ]; then
-            echo "!!! 裁剪选项未关闭，本次构建可能再次失败 !!!"
-          fi
-
-      - name: 下载源码包
-        run: |
-          cd "${SOURCE_DIR}"
-          make download -j"$(nproc)" || make download -j1 V=s
-          find dl -size -1024c -exec ls -l {} \; || true
-          find dl -size -1024c -exec rm -f {} \; || true
-
-      - name: 编译固件
-        run: |
-          cd "${SOURCE_DIR}"
-          echo -e "$(nproc) thread compile"
-          if make -j"$(nproc)"; then
-            echo "=== 并行编译成功 ==="
-          else
-            echo "=== 并行编译失败，改用 -j1 V=s 重跑以获取完整错误 ==="
-            make -j1 V=s 2>&1 | tee /tmp/build_verbose.log
-            rc=${PIPESTATUS[0]}
-            echo "=== 详细日志尾部（真正的报错在这里） ==="
-            grep -nE 'Error [0-9]|make(\[[0-9]\])?: \*\*\*|ERROR:|Library not found|Cannot install|Collected errors|check_data_file_clashes' \
-              /tmp/build_verbose.log | tail -40 || true
-            exit "$rc"
-          fi
-          echo "================ 产物 ================"
-          ls -lh bin/targets/mediatek/filogic/ || true
-
-      - name: 整理产物
-        if: always()
-        run: |
-          cd "${SOURCE_DIR}"
-          mkdir -p "${GITHUB_WORKSPACE}/out"
-          OUT="${GITHUB_WORKSPACE}/out"
-          TARGET_DIR="bin/targets/mediatek/filogic"
-          if [ -d "${TARGET_DIR}" ]; then
-            # sysupgrade 固件（.itb，给 eMMC 用）与 initramfs 恢复镜像
-            for pat in '*sysupgrade*' '*recovery*' '*.manifest' '*.config' 'sha256sums' 'profiles.json'; do
-              find "${TARGET_DIR}" -maxdepth 1 -name "${pat}" -exec cp -v {} "${OUT}/" \; 2>/dev/null || true
-            done
-            # u-boot / gpt 等产物（如果本次编译产生了，一并保存）
-            for pat in '*preloader*' '*bl31-uboot*' '*emmc-gpt*'; do
-              find "${TARGET_DIR}" -maxdepth 1 -name "${pat}" -exec cp -v {} "${OUT}/" \; 2>/dev/null || true
-            done
-          fi
-          cd "${OUT}"
-          STAMP="$(date +%Y%m%d)"
-          for f in *; do
-            [ -f "${f}" ] && mv "${f}" "AkiSenSCWrt-${STAMP}-${f}" 2>/dev/null || true
-          done
-          sha256sum ./* > SHA256SUMS.txt 2>/dev/null || true
-          ls -lh
-          echo "OUT_DIR=${OUT}" >> "${GITHUB_ENV}"
-
-      - name: 上传固件
-        if: always()
+          mkdir -p "$GITHUB_WORKSPACE/encrypted"
+          tar -C /workdir/output -czf /workdir/AkiSenSCWrt.tar.gz .
+          printf '%s' "$ARTIFACT_PASSWORD" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            --output "$GITHUB_WORKSPACE/encrypted/AkiSenSCWrt-${GITHUB_RUN_NUMBER}.tar.gz.gpg" \
+            /workdir/AkiSenSCWrt.tar.gz
+          cd "$GITHUB_WORKSPACE/encrypted"
+          sha256sum ./*.gpg > SHA256SUMS.txt
+      - name: Upload encrypted firmware
         uses: actions/upload-artifact@v4
         with:
-          name: AkiSenSCWrt-RAX3000M-eMMC-${{ github.run_number }}
-          path: ${{ github.workspace }}/out/*
-          if-no-files-found: warn
+          name: AkiSenSCWrt-MTK66-encrypted-${{ github.run_number }}
+          path: encrypted/
+          if-no-files-found: error
           retention-days: 30
-
-      - name: 上传编译日志（失败时排查用）
+          compression-level: 0
+      - name: Upload build diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-${{ github.run_number }}
+          name: build-diagnostics-${{ github.run_number }}
           path: |
-            immortalwrt/logs/
-            immortalwrt/.config
+            /workdir/immortalwrt/logs/
+            /workdir/immortalwrt/.config
           if-no-files-found: ignore
           retention-days: 7

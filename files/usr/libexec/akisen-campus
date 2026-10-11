@@ -1,0 +1,23 @@
+#!/bin/sh
+# Called after firewall reload and WAN reconnect. Isolated table, no DNS changes.
+. /lib/functions/network.sh
+nft list table inet akisen_campus >/dev/null 2>&1 && nft delete table inet akisen_campus
+[ "$(uci -q get campus.main.enabled)" = 1 ] || exit 0
+network_get_device wan_device wan || exit 0
+case "$wan_device" in ''|*[!a-zA-Z0-9_.:-]*) exit 1 ;; esac
+ttl="$(uci -q get campus.main.ttl)"
+case "$ttl" in 64|65|128) ;; *) ttl=64 ;; esac
+ipid=''
+[ "$(uci -q get campus.main.ipid)" = 1 ] && {
+    modprobe rkp-ipid || exit 1
+    ipid="oifname \"$wan_device\" meta nfproto ipv4 meta mark set meta mark | 0x40000000"
+}
+nft -f - <<EOF
+table inet akisen_campus {
+    chain postrouting {
+        type filter hook postrouting priority -149; policy accept;
+        oifname "$wan_device" meta nfproto ipv4 ip ttl set $ttl
+        $ipid
+    }
+}
+EOF
