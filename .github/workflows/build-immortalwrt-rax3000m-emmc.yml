@@ -20,6 +20,10 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
+      - name: Check build configuration guards
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 scripts/verify.py config rax3000m-emmc.config
       - name: Require private build settings
         id: private_settings
         env:

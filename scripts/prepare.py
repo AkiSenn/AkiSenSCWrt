@@ -98,7 +98,7 @@ def main():
     write(TREE / '.config', '\n'.join(driver) + '\n' + (ROOT / 'rax3000m-emmc.config').read_text()
           + f'\nCONFIG_CCACHE_DIR="{cache}"\n')
     run('make', 'defconfig')
-    run(sys.executable, str(ROOT / 'scripts/verify.py'), 'config', str(TREE / '.config'))
+    run(sys.executable, str(ROOT / 'scripts/verify.py'), 'config', str(TREE / '.config'), str(TREE / 'tmp/.packageinfo'))
 
 if __name__ == '__main__':
     main()

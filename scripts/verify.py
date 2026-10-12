@@ -15,8 +15,33 @@ luci-app-diskman luci-app-upnp luci-app-ttyd luci-app-wechatpush
 luci-theme-vantage luci-app-vantage luci-theme-bootstrap
 kmod-usb-storage kmod-usb-storage-uas kmod-fs-ext4 kmod-fs-f2fs
 kmod-fs-ntfs3 kmod-fs-exfat kmod-fs-vfat kmod-fs-btrfs kmod-fs-xfs
-block-mount cfdisk parted sgdisk resize2fs mkf2fs f2fsck smartmontools
+block-mount ntfs3-mount cfdisk parted sgdisk resize2fs mkf2fs f2fsck smartmontools
 odhcp6c odhcpd-ipv6only luci-proto-ipv6 bash curl ruby ruby-yaml'''.split()
+
+def verify_declared_conflicts(filename, selected):
+    """Check the actual feed metadata, including conflicts with virtual providers."""
+    packages = {}
+    current = None
+    for line in Path(filename).read_text().splitlines():
+        if line.startswith('Source-Makefile:'):
+            current = None
+        elif line.startswith('Package: '):
+            current = line.split(':', 1)[1].strip()
+            packages[current] = {'conflicts': [], 'provides': []}
+        elif current and line.startswith(('Conflicts:', 'Provides:')):
+            field, value = line.split(':', 1)
+            packages[current][field.lower()] = value.split()
+    providers = {}
+    for name in selected:
+        for alias in [name] + packages.get(name, {}).get('provides', []):
+            providers.setdefault(alias, set()).add(name)
+    conflicts = set()
+    for name in selected:
+        for other in packages.get(name, {}).get('conflicts', []):
+            for provider in providers.get(other, set()) - {name}:
+                conflicts.add(tuple(sorted((name, provider))))
+    assert not conflicts, 'Conflicting firmware packages: ' + '; '.join(' / '.join(pair) for pair in sorted(conflicts))
+    print('Feed metadata: no declared conflicts among installed packages')
 
 def main():
     mode, filename = sys.argv[1:3]
@@ -29,6 +54,8 @@ def main():
             assert setting in data.splitlines(), 'Wrong MT7981 WARP hardware setting: ' + setting
         for option in ('RUBY_ENABLE_YJIT', 'USE_MKLIBS', 'STRIP_KERNEL_EXPORTS'):
             assert f'CONFIG_{option}=y' not in data.splitlines(), f'Unsafe build option: {option}'
+        if len(sys.argv) > 3:
+            verify_declared_conflicts(sys.argv[3], selected)
     elif mode == 'manifest':
         selected = {line.split(' - ')[0] for line in data.splitlines()}
         assert 'kernel' in selected, 'Missing kernel package'
@@ -36,6 +63,7 @@ def main():
     else:
         raise ValueError(mode)
     missing = sorted(set(REQUIRED) - selected)
+    assert not {'ntfs-3g', 'ntfs3-mount'} <= selected, 'Conflicting NTFS mount providers: ntfs-3g / ntfs3-mount'
     forbidden = sorted(p for p in selected if FORBIDDEN.match(p))
     assert not missing, 'Required packages missing: ' + ', '.join(missing)
     assert not forbidden, 'Docker/container packages selected: ' + ', '.join(forbidden)
