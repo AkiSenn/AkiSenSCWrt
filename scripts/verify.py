@@ -25,6 +25,8 @@ def main():
         selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', data, re.M))
         target = 'CONFIG_TARGET_mediatek_filogic_DEVICE_cmcc_rax3000m-emmc-mtk=y'
         assert target in data.splitlines(), 'Wrong RAX3000M eMMC MTK target'
+        for setting in ('CONFIG_WARP_VERSION=2', 'CONFIG_WARP_CHIPSET="mt7981"'):
+            assert setting in data.splitlines(), 'Wrong MT7981 WARP hardware setting: ' + setting
         for option in ('RUBY_ENABLE_YJIT', 'USE_MKLIBS', 'STRIP_KERNEL_EXPORTS'):
             assert f'CONFIG_{option}=y' not in data.splitlines(), f'Unsafe build option: {option}'
     elif mode == 'manifest':

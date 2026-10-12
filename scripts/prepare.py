@@ -93,7 +93,7 @@ def main():
     # Use the vendor's known driver options, but select exactly one current
     # device profile rather than copying its obsolete multi-device defconfig.
     vendor = (TREE / 'defconfig/mt7981-ax3000.config').read_text().splitlines()
-    driver = [line for line in vendor if re.match(r'(CONFIG_(MTK_|CONNINFRA_|first_card)|# CONFIG_MTK_)', line)]
+    driver = [line for line in vendor if re.match(r'(?:# )?CONFIG_(?:MTK_|CONNINFRA_|WARP_|WED_|first_card)', line)]
     cache = str(Path.home() / '.ccache')
     write(TREE / '.config', '\n'.join(driver) + '\n' + (ROOT / 'rax3000m-emmc.config').read_text()
           + f'\nCONFIG_CCACHE_DIR="{cache}"\n')

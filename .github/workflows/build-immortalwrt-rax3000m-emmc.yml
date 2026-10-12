@@ -21,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Require private build settings
+        id: private_settings
         env:
           WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
           ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASSWORD }}
@@ -56,8 +57,9 @@ jobs:
           mkdir -p "$HOME/.ccache"
           ccache -M 6G
       - name: Restore compiler cache
+        id: ccache
         if: inputs.use_ccache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.ccache
           key: ccache-mtk66-${{ hashFiles('sources.lock.json', 'rax3000m-emmc.config') }}-${{ github.run_id }}
@@ -82,8 +84,11 @@ jobs:
           make download -j8 || make download -j1 V=s
       - name: Compile firmware
         run: |
+          set -o pipefail
           cd "$SOURCE_DIR"
-          make -j"$(nproc)" || make -j1 V=s
+          mkdir -p /workdir/build-logs
+          make -j"$(nproc)" 2>&1 | tee /workdir/build-logs/compile.log || \
+            make -j1 V=s 2>&1 | tee -a /workdir/build-logs/compile.log
       - name: Verify firmware and preserve matching IPKs
         run: |
           cd "$SOURCE_DIR"
@@ -108,13 +113,34 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
-      - name: Upload build diagnostics on failure
-        if: failure()
+      - name: Encrypt build diagnostics on failure
+        if: failure() && steps.private_settings.outcome == 'success'
+        env:
+          ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASSWORD }}
+        run: |
+          mkdir -p /workdir/diagnostics "$GITHUB_WORKSPACE/encrypted-diagnostics"
+          if [ -f "$SOURCE_DIR/.config" ]; then
+            cp "$SOURCE_DIR/.config" /workdir/diagnostics/build.config
+          fi
+          if [ -d /workdir/build-logs ]; then
+            cp -a /workdir/build-logs /workdir/diagnostics/
+          fi
+          tar -C /workdir/diagnostics -czf /workdir/diagnostics.tar.gz .
+          printf '%s' "$ARTIFACT_PASSWORD" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            --output "$GITHUB_WORKSPACE/encrypted-diagnostics/diagnostics-${GITHUB_RUN_NUMBER}.tar.gz.gpg" \
+            /workdir/diagnostics.tar.gz
+      - name: Upload encrypted build diagnostics on failure
+        if: failure() && steps.private_settings.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: build-diagnostics-${{ github.run_number }}
-          path: |
-            /workdir/immortalwrt/logs/
-            /workdir/immortalwrt/.config
+          name: build-diagnostics-encrypted-${{ github.run_number }}
+          path: encrypted-diagnostics/
           if-no-files-found: ignore
           retention-days: 7
+      - name: Save compiler cache even after build failure
+        if: always() && inputs.use_ccache && steps.ccache.outputs.cache-primary-key != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
