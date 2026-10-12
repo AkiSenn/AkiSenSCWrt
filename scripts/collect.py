@@ -18,8 +18,16 @@ assert len(images) == 1, 'Expected exactly one eMMC MTK sysupgrade image'
 manifests = list(target.glob('*cmcc_rax3000m-emmc-mtk*.manifest'))
 assert len(manifests) == 1, 'Missing device package manifest'
 subprocess.run([sys.executable, str(ROOT / 'scripts/verify.py'), 'manifest', str(manifests[0])], check=True)
+metadata_file = out / 'firmware-metadata.json'
+subprocess.run([str(TREE / 'staging_dir/host/bin/fwtool'), '-i', str(metadata_file), str(images[0])], check=True)
+metadata = json.loads(metadata_file.read_text())
+assert 'cmcc,rax3000m-emmc' in metadata['supported_devices'], 'Wrong image board compatibility'
+assert metadata['version']['version'] == '24.10-MTK', 'Custom release version missing from image'
+assert metadata['version']['revision'] == 'AkiSenn', 'Custom signature missing from image'
 for path in target.iterdir():
-    if path.is_file() and (path.suffix in ('.bin', '.manifest', '.json', '.buildinfo') or path.name in ('sha256sums', 'config.buildinfo', 'feeds.buildinfo', 'version.buildinfo')):
+    device_image = 'cmcc_rax3000m-emmc-mtk' in path.name and path.suffix in ('.bin', '.manifest')
+    build_record = path.suffix in ('.json', '.buildinfo') or path.name == 'sha256sums'
+    if path.is_file() and (device_image or build_record):
         shutil.copy2(path, out / path.name)
 shutil.copy2(TREE / '.config', out / 'build.config')
 shutil.copy2(ROOT / 'sources.lock.json', out / 'sources.lock.json')

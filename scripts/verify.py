@@ -54,6 +54,8 @@ def main():
             assert setting in data.splitlines(), 'Wrong MT7981 WARP hardware setting: ' + setting
         for setting in ('CONFIG_DEVEL=y', 'CONFIG_CCACHE=y'):
             assert setting in data.splitlines(), 'Compiler cache prerequisite missing: ' + setting
+        for setting in ('CONFIG_IMAGEOPT=y', 'CONFIG_VERSIONOPT=y', 'CONFIG_VERSION_NUMBER="24.10-MTK"', 'CONFIG_VERSION_CODE="AkiSenn"'):
+            assert setting in data.splitlines(), 'Custom firmware version setting missing: ' + setting
         for option in ('RUBY_ENABLE_YJIT', 'USE_MKLIBS', 'STRIP_KERNEL_EXPORTS'):
             assert f'CONFIG_{option}=y' not in data.splitlines(), f'Unsafe build option: {option}'
         if len(sys.argv) > 3:
