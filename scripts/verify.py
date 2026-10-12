@@ -14,6 +14,7 @@ kmod-rkp-ipid easytier luci-app-easytier luci-app-samba4 samba4-server
 luci-app-diskman luci-app-upnp luci-app-ttyd luci-app-wechatpush
 luci-theme-vantage luci-app-vantage luci-theme-bootstrap
 kmod-usb-storage kmod-usb-storage-uas kmod-fs-ext4 kmod-fs-f2fs
+kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm usbutils
 kmod-fs-ntfs3 kmod-fs-exfat kmod-fs-vfat kmod-fs-btrfs kmod-fs-xfs
 block-mount ntfs3-mount cfdisk parted sgdisk resize2fs mkf2fs f2fsck smartmontools
 odhcp6c odhcpd-ipv6only luci-proto-ipv6 bash curl ruby ruby-yaml'''.split()

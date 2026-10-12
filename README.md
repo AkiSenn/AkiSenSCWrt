@@ -11,6 +11,7 @@
 - OpenClash，预置经 SHA256 校验的 ARM64 Mihomo 核心；TUN、nftables TPROXY/socket、iptables/ipset、连接跟踪与诊断模块。
 - EasyTier 核心、CLI 与 LuCI；Samba4 SMB 共享；UPnP；网页终端；微信推送。
 - DiskMan、USB 3/UAS、分区和扩容工具、SMART、ext4/F2FS/NTFS3/exFAT/FAT/Btrfs/XFS。
+- 手机 USB 网络共享：内置 `kmod-usb-net`、RNDIS、CDC Ethernet、CDC NCM 和 `usbutils`，无需先联网安装驱动。
 - DHCP 上网与 IPv6；5GHz HE160、2.4GHz HE40，2.4GHz 保留共存机制。
 - 原机 factory 校准、26MHz eMMC；不自动格式化、扩容或修改 GPT。
 - Vantage 主题和面板，保留 Bootstrap 恢复入口。
@@ -36,6 +37,8 @@ Actions → **Build AkiSenSCWrt (RAX3000M eMMC)** → Run workflow。需要两�
 ## 使用
 
 见 [FLASHING.md](FLASHING.md)。OpenClash、EasyTier 和微信推送需配置个人订阅、网络或推送服务后启用。磁盘挂载和 SMB 目录通过 LuCI 设置，不默认匿名共享整块硬盘。
+
+使用手机 USB 共享网络时，连接支持数据传输的 USB 线并在手机上开启共享；在“网络 → 接口”新建 DHCP 客户端接口，选择实际出现的 USB 网卡并加入 WAN 防火墙区域。网卡名称可能为 `usb0` 或 `eth*`，以设备列表为准；有多个上网接口时按需要调整路由跃点。
 
 校园网功能默认关闭，避免在未知门户环境下改变报文。需要时在终端启用：
 
