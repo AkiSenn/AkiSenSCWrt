@@ -2,6 +2,7 @@
 """Fail the build when required selections or final manifest entries are missing."""
 from pathlib import Path
 import re
+import shlex
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,23 @@ kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm usbu
 kmod-fs-ntfs3 kmod-fs-exfat kmod-fs-vfat kmod-fs-btrfs kmod-fs-xfs
 block-mount ntfs3-mount cfdisk parted sgdisk resize2fs mkf2fs f2fsck smartmontools
 odhcp6c odhcpd-ipv6only luci-proto-ipv6 bash curl ruby ruby-yaml'''.split()
+
+def verify_image_identity(metadata, release_text):
+    """Source revision and the custom VERSION_CODE occupy different fields."""
+    release = {}
+    for line in release_text.splitlines():
+        key, separator, value = line.partition('=')
+        if separator and key.startswith('DISTRIB_'):
+            words = shlex.split(value)
+            assert len(words) == 1, 'Invalid release field: ' + key
+            release[key] = words[0]
+    assert 'cmcc,rax3000m-emmc' in metadata['supported_devices'], 'Wrong image board compatibility'
+    version = metadata['version']
+    assert version['version'] == release.get('DISTRIB_RELEASE') == '24.10-MTK', 'Custom release version missing from image'
+    assert version['target'] == release.get('DISTRIB_TARGET') == 'mediatek/filogic', 'Wrong image target'
+    assert version['revision'] and version['revision'] == release.get('DISTRIB_REVISION'), 'Image source revision mismatch'
+    assert 'AkiSenn' in release.get('DISTRIB_DESCRIPTION', '').split(), 'Custom signature missing from image description'
+    print('Image identity: eMMC target, custom release/signature and source revision verified')
 
 def verify_declared_conflicts(filename, selected):
     """Check the actual feed metadata, including conflicts with virtual providers."""

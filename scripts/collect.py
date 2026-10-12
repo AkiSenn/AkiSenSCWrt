@@ -7,6 +7,9 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
+
+from verify import verify_image_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 TREE = Path.cwd()
@@ -21,9 +24,19 @@ subprocess.run([sys.executable, str(ROOT / 'scripts/verify.py'), 'manifest', str
 metadata_file = out / 'firmware-metadata.json'
 subprocess.run([str(TREE / 'staging_dir/host/bin/fwtool'), '-i', str(metadata_file), str(images[0])], check=True)
 metadata = json.loads(metadata_file.read_text())
-assert 'cmcc,rax3000m-emmc' in metadata['supported_devices'], 'Wrong image board compatibility'
-assert metadata['version']['version'] == '24.10-MTK', 'Custom release version missing from image'
-assert metadata['version']['revision'] == 'AkiSenn', 'Custom signature missing from image'
+# Read the system identity from the actual SquashFS payload, without unpacking
+# private Wi-Fi settings or confusing source REVISION with custom VERSION_CODE.
+with tempfile.TemporaryDirectory() as temporary:
+    rootfs = Path(temporary) / 'rootfs.squashfs'
+    with tarfile.open(images[0]) as archive:
+        member = archive.getmember('sysupgrade-cmcc_rax3000m-emmc-mtk/root')
+        assert member.isfile(), 'Missing regular rootfs payload'
+        with archive.extractfile(member) as source, rootfs.open('wb') as destination:
+            shutil.copyfileobj(source, destination)
+    release_text = subprocess.run(['unsquashfs', '-cat', str(rootfs), 'etc/openwrt_release'],
+                                  check=True, capture_output=True, text=True).stdout
+verify_image_identity(metadata, release_text)
+(out / 'openwrt_release').write_text(release_text)
 for path in target.iterdir():
     device_image = 'cmcc_rax3000m-emmc-mtk' in path.name and path.suffix in ('.bin', '.manifest')
     build_record = path.suffix in ('.json', '.buildinfo') or path.name == 'sha256sums'

@@ -55,7 +55,7 @@ jobs:
             automake autopoint gperf intltool pkgconf cmake ninja-build \
             genisoimage device-tree-compiler libglib2.0-dev libyaml-dev \
             libreadline-dev texinfo gnutls-dev libltdl-dev antlr3 asciidoc \
-            lib32gcc-s1 libc6-dev-i386 re2c gnupg
+            lib32gcc-s1 libc6-dev-i386 re2c gnupg squashfs-tools
           sudo mkdir -p /workdir
           sudo chown "$USER:$USER" /workdir
           mkdir -p "$HOME/.ccache"
