@@ -52,9 +52,12 @@ def main():
         assert target in data.splitlines(), 'Wrong RAX3000M eMMC MTK target'
         for setting in ('CONFIG_WARP_VERSION=2', 'CONFIG_WARP_CHIPSET="mt7981"'):
             assert setting in data.splitlines(), 'Wrong MT7981 WARP hardware setting: ' + setting
+        for setting in ('CONFIG_DEVEL=y', 'CONFIG_CCACHE=y'):
+            assert setting in data.splitlines(), 'Compiler cache prerequisite missing: ' + setting
         for option in ('RUBY_ENABLE_YJIT', 'USE_MKLIBS', 'STRIP_KERNEL_EXPORTS'):
             assert f'CONFIG_{option}=y' not in data.splitlines(), f'Unsafe build option: {option}'
         if len(sys.argv) > 3:
+            assert re.search(r'^CONFIG_CCACHE_DIR="[^"\n]+"$', data, re.M), 'Compiler cache directory was discarded by Kconfig'
             verify_declared_conflicts(sys.argv[3], selected)
     elif mode == 'manifest':
         selected = {line.split(' - ')[0] for line in data.splitlines()}
