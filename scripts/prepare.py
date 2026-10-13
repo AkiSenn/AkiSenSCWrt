@@ -56,6 +56,16 @@ def main():
         raise RuntimeError('Unexpected eMMC device tree')
     write(dts, contents.replace('max-frequency = <52000000>;', 'max-frequency = <26000000>;'))
 
+    # The real board compatible and existing sysupgrade validator use emmc,
+    # while the vendor profile adds -mtk. Keep filenames/profile names but make
+    # the tar directory and CONTROL board match the running eMMC device.
+    image_recipe = TREE / 'target/linux/mediatek/image/filogic.mk'
+    contents = image_recipe.read_text()
+    profile = 'define Device/cmcc_rax3000m-emmc-mtk\n'
+    if contents.count(profile) != 1:
+        raise RuntimeError('Unexpected RAX3000M eMMC image recipe')
+    write(image_recipe, contents.replace(profile, profile + '  BOARD_NAME := cmcc_rax3000m-emmc\n'))
+
     # Reserve upper mark bits for the optional campus service; OpenClash uses
     # lower bits. No packets are selected until that service is enabled.
     module = TREE / 'package/akisen/rkp-ipid/src/rkp-ipid.c'

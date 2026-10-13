@@ -9,7 +9,7 @@ import sys
 import tarfile
 import tempfile
 
-from verify import verify_image_identity
+from verify import verify_image_identity, verify_sysupgrade_tar
 
 ROOT = Path(__file__).resolve().parents[1]
 TREE = Path.cwd()
@@ -29,7 +29,8 @@ metadata = json.loads(metadata_file.read_text())
 with tempfile.TemporaryDirectory() as temporary:
     rootfs = Path(temporary) / 'rootfs.squashfs'
     with tarfile.open(images[0]) as archive:
-        member = archive.getmember('sysupgrade-cmcc_rax3000m-emmc-mtk/root')
+        verify_sysupgrade_tar(archive)
+        member = archive.getmember('sysupgrade-cmcc_rax3000m-emmc/root')
         assert member.isfile(), 'Missing regular rootfs payload'
         with archive.extractfile(member) as source, rootfs.open('wb') as destination:
             shutil.copyfileobj(source, destination)

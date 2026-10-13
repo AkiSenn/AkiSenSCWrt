@@ -20,6 +20,16 @@ kmod-fs-ntfs3 kmod-fs-exfat kmod-fs-vfat kmod-fs-btrfs kmod-fs-xfs
 block-mount ntfs3-mount cfdisk parted sgdisk resize2fs mkf2fs f2fsck smartmontools
 odhcp6c odhcpd-ipv6only luci-proto-ipv6 bash curl ruby ruby-yaml'''.split()
 
+def verify_sysupgrade_tar(archive):
+    """The running board's checker requires this exact directory and CONTROL."""
+    prefix = 'sysupgrade-cmcc_rax3000m-emmc/'
+    for name in ('CONTROL', 'kernel', 'root'):
+        member = archive.getmember(prefix + name)
+        assert member.isfile() and member.size > 0, 'Missing sysupgrade payload: ' + name
+    with archive.extractfile(prefix + 'CONTROL') as control:
+        assert 'BOARD=cmcc_rax3000m-emmc' in control.read().decode().splitlines(), 'Wrong sysupgrade CONTROL board'
+    print('Sysupgrade tar: directory and CONTROL match the running eMMC board')
+
 def verify_image_identity(metadata, release_text):
     """Source revision and the custom VERSION_CODE occupy different fields."""
     release = {}
@@ -33,6 +43,7 @@ def verify_image_identity(metadata, release_text):
     version = metadata['version']
     assert version['version'] == release.get('DISTRIB_RELEASE') == '24.10-MTK', 'Custom release version missing from image'
     assert version['target'] == release.get('DISTRIB_TARGET') == 'mediatek/filogic', 'Wrong image target'
+    assert version['board'] == 'cmcc_rax3000m-emmc', 'Wrong sysupgrade metadata board'
     assert version['revision'] and version['revision'] == release.get('DISTRIB_REVISION'), 'Image source revision mismatch'
     assert 'AkiSenn' in release.get('DISTRIB_DESCRIPTION', '').split(), 'Custom signature missing from image description'
     print('Image identity: eMMC target, custom release/signature and source revision verified')

@@ -4,6 +4,8 @@
 
 选择 `*cmcc_rax3000m-emmc-mtk*sysupgrade.bin`。这是包含 FIT 内核与 rootfs 的 sysupgrade tar 包，后缀不能用来推断分区兼容性。不要刷旧构建的 `cmcc_rax3000m-sysupgrade.itb`。
 
+构建会将包内目录和 CONTROL 设为实际设备使用的 `cmcc_rax3000m-emmc`，而文件名保留上游的 `-mtk` 目标名称。旧构建 #18 的包内目录仍带 `-mtk`，未通过当前系统的 `sysupgrade -T`，不要直接刷写或强制升级该构建。
+
 ## 解密
 
 下载加密 artifact，检查密文 SHA256，在有 GnuPG 的电脑上运行：
